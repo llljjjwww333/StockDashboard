@@ -54,6 +54,13 @@
   padding: 1.3rem 1.4rem;
 }
 
+.watchlist-header-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
 .eyebrow {
   margin: 0 0 0.5rem;
   color: var(--text-muted);
@@ -85,6 +92,32 @@
   padding: 0.4rem 0.8rem;
   color: var(--text-secondary);
   font-size: 0.85rem;
+}
+
+.language-toggle {
+  display: inline-flex;
+  gap: 0.35rem;
+  padding: 0.2rem;
+  border: 1px solid var(--stroke-soft);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.language-toggle button {
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0.4rem 0.8rem;
+  transition:
+    background-color 160ms ease,
+    color 160ms ease;
+}
+
+.language-toggle button.active {
+  background: rgba(255, 161, 79, 0.16);
+  color: var(--text-primary);
 }
 
 .search-panel {
@@ -646,6 +679,8 @@
   .hero-metrics,
   .section-header,
   .chart-overlay,
+  .watchlist-header,
+  .watchlist-header-actions,
   .watchlist-main,
   .watchlist-meta,
   .watchlist-footer {
