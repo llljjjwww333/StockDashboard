@@ -18,6 +18,14 @@ class StockUpdate(BaseModel):
     price: float
     volume: int
     change_percent: float
+    change: float | None = None
+    open_price: float | None = None
+    high_price: float | None = None
+    low_price: float | None = None
+    previous_close: float | None = None
+    amount: float | None = None
+    turnover_rate: float | None = None
+    amplitude_percent: float | None = None
 
 class WebSocketMessage(BaseModel):
     type: str  # 'subscribe' or 'update'

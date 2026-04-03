@@ -1,27 +1,76 @@
 version: '3.8'
 
+# 网络配置
+networks:
+  stock-dashboard-network:
+    driver: bridge
+    name: stock-dashboard-network
+
+# 卷配置
+volumes:
+  redis-data:
+    name: stock-dashboard-redis-data
+
+# 服务配置
 services:
+  # 后端服务
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    container_name: stock-dashboard-backend
     ports:
       - "8000:8000"
     depends_on:
       - redis
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+    networks:
+      - stock-dashboard-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
+  # Redis 服务
   redis:
     image: redis:7-alpine
+    container_name: stock-dashboard-redis
     ports:
       - "6379:6379"
+    volumes:
+      - redis-data:/data
+    networks:
+      - stock-dashboard-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
+  # 前端服务
   frontend:
     build:
       context: ./frontend-react
       dockerfile: Dockerfile
+    container_name: stock-dashboard-frontend
     ports:
       - "3000:3000"
     depends_on:
       - backend
+    environment:
+      - VITE_API_URL=http://localhost:8000
+      - VITE_WS_URL=ws://localhost:8000
+    networks:
+      - stock-dashboard-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

@@ -2,7 +2,7 @@ import { useStockStore } from '../store/stockStore';
 
 class StockWebSocketService {
   private socket: WebSocket | null = null;
-  private reconnectTimeout: NodeJS.Timeout | null = null;
+  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private isConnected = false;
   private subscribedTickers = new Set<string>();
 
@@ -18,7 +18,9 @@ class StockWebSocketService {
 
     try {
       console.log('Attempting to connect to WebSocket server...');
-      this.socket = new WebSocket('ws://localhost:8000/ws/stock-updates');
+      // 使用环境变量或默认值
+      const wsUrl = import.meta.env.VITE_WS_URL || 'ws://127.0.0.1:8000';
+      this.socket = new WebSocket(`${wsUrl}/ws/stock-updates`);
 
       this.socket.onopen = () => {
         console.log('WebSocket connected');
@@ -43,7 +45,11 @@ class StockWebSocketService {
           const message = JSON.parse(event.data);
           if (message.type === 'update') {
             const { ticker, price, change_percent, volume } = message.data;
-            useStockStore.getState().updateStockPrice(ticker, price, change_percent, volume);
+            useStockStore.getState().updateStockQuote(ticker, {
+              price,
+              changePercent: change_percent,
+              volume,
+            });
           }
         } catch (error) {
           console.error('Error parsing WebSocket message:', error);

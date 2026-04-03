@@ -5,4 +5,5 @@ pydantic==2.5.2
 pydantic-settings==2.1.0
 redis==5.0.1
 yfinance==0.2.37
+akshare==1.18.50
 python-dotenv==1.0.0

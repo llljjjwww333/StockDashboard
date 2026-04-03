@@ -1,7 +1,6 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 import asyncio
 import json
-import random
 from app.services.stock_data_service import StockDataService
 
 router = APIRouter()
@@ -41,7 +40,7 @@ class ConnectionManager:
     
     async def broadcast_to_subscribers(self, ticker: str, message: str):
         if ticker in self.subscriptions:
-            for connection in self.subscriptions[ticker]:
+            for connection in list(self.subscriptions[ticker]):
                 try:
                     await connection.send_text(message)
                 except Exception:
@@ -93,25 +92,30 @@ async def generate_stock_updates():
     while True:
         # Get all unique tickers being subscribed to
         tickers = list(manager.subscriptions.keys())
-        
-        for ticker in tickers:
-            try:
-                # Generate real-time data
-                stock_data = await stock_service.get_real_time_data(ticker)
-                
-                # Broadcast to subscribers
-                await manager.broadcast_to_subscribers(
-                    ticker,
-                    json.dumps({
-                        "type": "update",
-                        "data": stock_data.model_dump()
-                    })
-                )
-            except Exception as e:
-                print(f"Error generating update for {ticker}: {e}")
-        
-        # Wait for 3-5 seconds before next update to avoid hitting rate limits
-        await asyncio.sleep(random.uniform(3, 5))
+
+        if not tickers:
+            await asyncio.sleep(2)
+            continue
+
+        updates = await asyncio.gather(
+            *(stock_service.get_real_time_data(ticker) for ticker in tickers),
+            return_exceptions=True,
+        )
+
+        for ticker, stock_data in zip(tickers, updates):
+            if isinstance(stock_data, Exception):
+                print(f"Error generating update for {ticker}: {stock_data}")
+                continue
+
+            await manager.broadcast_to_subscribers(
+                ticker,
+                json.dumps({
+                    "type": "update",
+                    "data": stock_data.model_dump()
+                })
+            )
+
+        await asyncio.sleep(10)
 
 # Start the background task
 @router.on_event("startup")
