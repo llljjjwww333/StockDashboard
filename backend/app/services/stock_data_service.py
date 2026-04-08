@@ -51,6 +51,20 @@ class StockDataService:
             "XLRE": "Real Estate",
             "XLC": "Communication Services",
         }
+        self.cn_sector_map = {
+            "510050": "上证50",
+            "510300": "沪深300",
+            "510500": "中证500",
+            "159915": "创业板",
+            "588000": "科创50",
+            "512480": "半导体",
+            "512170": "医疗",
+            "512010": "医药",
+            "512880": "券商",
+            "515030": "新能源车",
+            "159928": "消费",
+            "516160": "新能源",
+        }
         self.market_hotspot_universe = {
             "US": [
                 {"ticker": "SPY", "name": "SPDR S&P 500 ETF"},
@@ -71,23 +85,23 @@ class StockDataService:
                 {"ticker": "^VIX", "name": "CBOE Volatility Index"},
             ],
             "CN": [
-                {"ticker": "510300", "name": "CSI 300 ETF"},
-                {"ticker": "510500", "name": "CSI 500 ETF"},
-                {"ticker": "159915", "name": "ChiNext ETF"},
-                {"ticker": "159949", "name": "STAR 50 ETF"},
-                {"ticker": "600519", "name": "Kweichow Moutai"},
-                {"ticker": "601318", "name": "Ping An"},
-                {"ticker": "000858", "name": "Wuliangye"},
-                {"ticker": "600036", "name": "China Merchants Bank"},
-                {"ticker": "601899", "name": "Zijin Mining"},
-                {"ticker": "600031", "name": "Sany Heavy Industry"},
-                {"ticker": "300033", "name": "Tonghuashun"},
-                {"ticker": "300059", "name": "East Money"},
+                {"ticker": "510050", "name": "上证50ETF"},
+                {"ticker": "510300", "name": "沪深300ETF"},
+                {"ticker": "510500", "name": "中证500ETF"},
+                {"ticker": "159915", "name": "创业板ETF"},
+                {"ticker": "588000", "name": "科创50ETF"},
+                {"ticker": "512480", "name": "半导体ETF"},
+                {"ticker": "512170", "name": "医疗ETF"},
+                {"ticker": "512010", "name": "医药ETF"},
+                {"ticker": "512880", "name": "证券ETF"},
+                {"ticker": "515030", "name": "新能源车ETF"},
+                {"ticker": "159928", "name": "消费ETF"},
+                {"ticker": "516160", "name": "新能源ETF"},
             ],
         }
         self.market_hotspot_indices = {
             "US": ["SPY", "QQQ", "DIA", "IWM"],
-            "CN": ["510300", "510500", "159915", "159949"],
+            "CN": ["510050", "510300", "510500", "159915", "588000"],
         }
         self.industry_map = {
             "AAPL": "Technology",
@@ -145,6 +159,7 @@ class StockDataService:
         self.market_hotspot_cache_ttl_seconds = 5 * 60.0
         self.market_hotspot_stale_ttl_seconds = 4 * 60 * 60.0
         self.polygon_reference_cache_ttl_seconds = 24 * 60 * 60.0
+        self.cn_full_market_universe_cache_ttl_seconds = 24 * 60 * 60.0
         self.source_timeout_seconds = 6.0
         self.market_source_timeout_seconds = 20.0
         self.polygon_api_key = os.getenv("POLYGON_API_KEY", "").strip()
@@ -152,6 +167,7 @@ class StockDataService:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.market_hotspot_cache_file = self.cache_dir / "market_hotspots.json"
         self.polygon_reference_cache_file = self.cache_dir / "polygon_us_common_stocks.json"
+        self.cn_a_share_universe_cache_file = self.cache_dir / "cn_a_share_universe.json"
         self.http_headers = {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -509,6 +525,297 @@ class StockDataService:
             raise ValueError("Polygon full market snapshot returned no tickers")
         return [ticker for ticker in tickers if isinstance(ticker, dict)]
 
+    def _get_cn_exchange_prefix(self, ticker: str) -> str:
+        if ticker.startswith(("5", "6", "9")):
+            return "sh"
+        return "sz"
+
+    def _get_cn_tencent_symbol(self, ticker: str) -> str:
+        return f"{self._get_cn_exchange_prefix(ticker)}{ticker}"
+
+    def _get_cn_eastmoney_secid(self, ticker: str) -> str:
+        market_id = "1" if self._get_cn_exchange_prefix(ticker) == "sh" else "0"
+        return f"{market_id}.{ticker}"
+
+    def _fetch_cn_quote_snapshot_map(self, tickers: list[str]) -> dict[str, dict[str, Any]]:
+        unique_tickers = [ticker for ticker in dict.fromkeys(tickers) if ticker]
+        if not unique_tickers:
+            return {}
+
+        symbols = ",".join(self._get_cn_tencent_symbol(ticker) for ticker in unique_tickers)
+        request = urllib.request.Request(
+            f"https://qt.gtimg.cn/q={symbols}",
+            headers={
+                **self.http_headers,
+                "Referer": "https://gu.qq.com/",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=self.source_timeout_seconds) as response:
+            raw_text = response.read().decode("gbk", errors="ignore")
+
+        quote_map: dict[str, dict[str, Any]] = {}
+        for line in raw_text.split(";"):
+            cleaned_line = line.strip()
+            if "~" not in cleaned_line:
+                continue
+
+            fields = cleaned_line.split("~")
+            ticker = fields[2].strip() if len(fields) > 2 else ""
+            if not ticker:
+                continue
+
+            quote_map[ticker] = {
+                "name": fields[1].strip() if len(fields) > 1 else ticker,
+                "price": self._safe_float(fields[3]) if len(fields) > 3 else None,
+                "previous_close": self._safe_float(fields[4]) if len(fields) > 4 else None,
+                "open_price": self._safe_float(fields[5]) if len(fields) > 5 else None,
+                "volume_lots": self._safe_int(fields[6]) if len(fields) > 6 else 0,
+                "change": self._safe_float(fields[31]) if len(fields) > 31 else None,
+                "change_percent": self._safe_float(fields[32]) if len(fields) > 32 else None,
+                "high_price": self._safe_float(fields[33]) if len(fields) > 33 else None,
+                "low_price": self._safe_float(fields[34]) if len(fields) > 34 else None,
+                "amount_10k": self._safe_float(fields[37]) if len(fields) > 37 else None,
+                "turnover_rate": self._safe_float(fields[38]) if len(fields) > 38 else None,
+            }
+
+        return quote_map
+
+    def _get_cn_a_share_universe(self) -> dict[str, str]:
+        cached_payload = self._read_json_cache(self.cn_a_share_universe_cache_file)
+        if isinstance(cached_payload, dict):
+            cached_at = self._safe_float(cached_payload.get("saved_at"))
+            cached_rows = cached_payload.get("rows")
+            if (
+                cached_at is not None
+                and time.time() - cached_at < self.cn_full_market_universe_cache_ttl_seconds
+                and isinstance(cached_rows, list)
+            ):
+                universe: dict[str, str] = {}
+                for item in cached_rows:
+                    if not isinstance(item, dict):
+                        continue
+                    ticker = str(item.get("ticker") or "").strip()
+                    name = str(item.get("name") or "").strip()
+                    if ticker and name:
+                        universe[ticker] = name
+                if universe:
+                    return universe
+
+        frame = ak.stock_info_a_code_name()
+        if frame is None or getattr(frame, "empty", True):
+            raise ValueError("A-share universe returned no rows")
+
+        universe: dict[str, str] = {}
+        for _, row in frame.iterrows():
+            ticker = str(row.get("code") or "").strip().zfill(6)
+            name = str(row.get("name") or "").strip()
+            if len(ticker) == 6 and ticker.isdigit() and name:
+                universe[ticker] = name
+
+        self._write_json_cache(
+            self.cn_a_share_universe_cache_file,
+            {
+                "saved_at": time.time(),
+                "rows": [
+                    {"ticker": ticker, "name": name}
+                    for ticker, name in sorted(universe.items())
+                ],
+            },
+        )
+        return universe
+
+    def _build_cn_hotspot_row(
+        self, ticker: str, name: str, quote: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        price = self._safe_float(quote.get("price"))
+        previous_close = self._safe_float(quote.get("previous_close"))
+        if price is None or previous_close is None or previous_close <= 0:
+            return None
+
+        change_percent = self._safe_float(quote.get("change_percent")) or 0.0
+        change_value = self._safe_float(quote.get("change"))
+        if change_value is None:
+            change_value = price - previous_close
+
+        volume = int((quote.get("volume_lots") or 0) * 100)
+        amount = (self._safe_float(quote.get("amount_10k")) or 0.0) * 10000
+
+        return {
+            "ticker": ticker,
+            "name": name,
+            "price": round(price, 2),
+            "change_percent": round(change_percent, 2),
+            "change": round(change_value, 2),
+            "volume": max(volume, 0),
+            "amount": round(amount, 2),
+            "amplitude_percent": None,
+        }
+
+    def _fetch_cn_full_market_rows(self) -> list[dict[str, Any]]:
+        universe = self._get_cn_a_share_universe()
+        all_tickers = list(universe.keys())
+        rows: list[dict[str, Any]] = []
+
+        for index in range(0, len(all_tickers), 80):
+            chunk = all_tickers[index : index + 80]
+            quote_map = self._fetch_cn_quote_snapshot_map(chunk)
+            for ticker in chunk:
+                quote = quote_map.get(ticker)
+                if not quote:
+                    continue
+                row = self._build_cn_hotspot_row(ticker, universe[ticker], quote)
+                if row is not None:
+                    rows.append(row)
+
+        if not rows:
+            raise ValueError("Tencent full-market snapshot returned no A-share rows")
+
+        return rows
+
+    def _build_cn_full_market_hotspots(self, proxy_rows: list[dict[str, Any]]) -> dict[str, Any]:
+        full_market_rows = self._fetch_cn_full_market_rows()
+        activity = ak.stock_market_activity_legu()
+        activity_map = {
+            str(row["item"]).strip(): self._normalize_metric_value(row["value"])
+            for _, row in activity.iterrows()
+        }
+
+        advancers = int(activity_map.get("上涨", 0))
+        decliners = int(activity_map.get("下跌", 0))
+        flat = int(activity_map.get("平盘", 0))
+        halted = int(activity_map.get("停牌", 0))
+        total = advancers + decliners + flat + halted
+        breadth_total = max(total - halted, advancers + decliners + flat, 1)
+        activity_ratio_raw = activity_map.get("活跃度", 0.0)
+        activity_ratio = (
+            activity_ratio_raw
+            if activity_ratio_raw <= 100
+            else round((advancers / max(breadth_total, 1)) * 100, 2)
+        )
+
+        index_tickers = set(self.market_hotspot_indices.get("CN", []))
+        indices = [row for row in proxy_rows if row["ticker"] in index_tickers]
+        sectors = [
+            {**row, "sector": self.cn_sector_map.get(row["ticker"], row["name"])}
+            for row in proxy_rows
+            if row["ticker"] not in index_tickers
+        ]
+        leaders = sorted(
+            full_market_rows,
+            key=lambda row: (row["change_percent"], row["amount"], row["volume"]),
+            reverse=True,
+        )[:5]
+        laggards = sorted(
+            full_market_rows,
+            key=lambda row: (row["change_percent"], -row["amount"], -row["volume"]),
+        )[:5]
+        active = sorted(
+            full_market_rows,
+            key=lambda row: (row.get("amount", 0), row["volume"], abs(row["change_percent"])),
+            reverse=True,
+        )[:5]
+
+        return {
+            "market": "CN",
+            "indices": indices,
+            "sectors": sectors,
+            "leaders": leaders,
+            "laggards": laggards,
+            "active": active,
+            "breadth": {
+                "advancers": advancers,
+                "decliners": decliners,
+                "flat": flat,
+                "total": advancers + decliners + flat,
+            },
+            "summary": {
+                "market": "CN",
+                "mode": "full_market",
+                "breadth_ratio": round((advancers / max(advancers + decliners + flat, 1)) * 100, 2),
+                "proxy_count": len(sectors),
+                "vix": round(activity_ratio, 2),
+                "vix_change": None,
+                "activity_ratio": round(activity_ratio, 2),
+                "limit_up": int(activity_map.get("涨停", 0)),
+                "limit_down": int(activity_map.get("跌停", 0)),
+                "halted": halted,
+                "universe_count": len(full_market_rows),
+            },
+            "updated_at": datetime.now(UTC).isoformat(),
+        }
+
+    def _fetch_cn_intraday_sina(self, ticker: str, interval: str, count: int) -> list[StockDataPoint]:
+        scale_map = {"5m": "5", "15m": "15", "30m": "30", "1h": "60"}
+        scale = scale_map.get(interval, "5")
+        symbol = self._get_cn_tencent_symbol(ticker)
+        params = urllib.parse.urlencode(
+            {
+                "symbol": symbol,
+                "scale": scale,
+                "ma": "no",
+                "datalen": count,
+            }
+        )
+        request = urllib.request.Request(
+            "https://money.finance.sina.com.cn/quotes_service/api/json_v2.php/CN_MarketData.getKLineData?" + params,
+            headers={
+                **self.http_headers,
+                "Referer": "https://finance.sina.com.cn/",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=self.source_timeout_seconds) as response:
+            raw_text = response.read().decode("utf-8", errors="ignore")
+
+        payload = json.loads(raw_text)
+        points: list[StockDataPoint] = []
+        for item in payload:
+            timestamp = str(item.get("day") or "")
+            if not timestamp:
+                continue
+            points.append(
+                StockDataPoint(
+                    timestamp=datetime.fromisoformat(timestamp.replace(" ", "T")).isoformat(),
+                    open=round(float(item["open"]), 2),
+                    high=round(float(item["high"]), 2),
+                    low=round(float(item["low"]), 2),
+                    close=round(float(item["close"]), 2),
+                    volume=int(float(item.get("volume") or 0)),
+                )
+            )
+
+        return points
+
+    def _fetch_cn_daily_tencent(self, ticker: str, count: int) -> list[StockDataPoint]:
+        symbol = self._get_cn_tencent_symbol(ticker)
+        request = urllib.request.Request(
+            f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={symbol},day,,,{count},qfq",
+            headers={
+                **self.http_headers,
+                "Referer": "https://finance.qq.com/",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=self.source_timeout_seconds) as response:
+            payload = json.load(response)
+
+        data = payload.get("data", {}).get(symbol, {})
+        rows = data.get("qfqday") or data.get("day") or []
+        points: list[StockDataPoint] = []
+        for row in rows:
+            if len(row) < 6:
+                continue
+            points.append(
+                StockDataPoint(
+                    timestamp=datetime.fromisoformat(f"{row[0]}T00:00:00").isoformat(),
+                    open=round(float(row[1]), 2),
+                    close=round(float(row[2]), 2),
+                    high=round(float(row[3]), 2),
+                    low=round(float(row[4]), 2),
+                    volume=int(float(row[5])),
+                )
+            )
+
+        return points
+
     def _extract_yahoo_value(self, value: Any) -> float | int | None:
         if isinstance(value, dict):
             raw_value = value.get("raw")
@@ -711,16 +1018,7 @@ class StockDataService:
 
     def _fetch_cn_daily_history(self, ticker: str, period: str) -> list[StockDataPoint]:
         spec = self.get_period_spec(period)
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=spec.history_window_days)
-        frame = ak.stock_zh_a_hist(
-            symbol=ticker,
-            period="daily",
-            start_date=start_date.strftime("%Y%m%d"),
-            end_date=end_date.strftime("%Y%m%d"),
-            adjust="qfq",
-        )
-        data = self._to_history_points(frame)
+        data = self._fetch_cn_daily_tencent(ticker, max(spec.fallback_points + 20, 80))
         if period == "1mo":
             return data[-22:]
         if period == "3mo":
@@ -731,19 +1029,8 @@ class StockDataService:
 
     def _fetch_cn_intraday_history(self, ticker: str, period: str, interval: str) -> list[StockDataPoint]:
         spec = self.get_period_spec(period)
-        period_value = interval.replace("m", "")
-        if interval == "1h":
-            period_value = "60"
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=spec.history_window_days)
-        frame = ak.stock_zh_a_hist_min_em(
-            symbol=ticker,
-            period=period_value,
-            adjust="qfq",
-            start_date=start_date.strftime("%Y-%m-%d %H:%M:%S"),
-            end_date=end_date.strftime("%Y-%m-%d %H:%M:%S"),
-        )
-        data = self._to_history_points(frame)
+        point_count = max(spec.fallback_points + 18, 120)
+        data = self._fetch_cn_intraday_sina(ticker, interval, point_count)
         return data[-spec.fallback_points :]
 
     def _generate_fallback_history(self, ticker: str, period: str) -> list[StockDataPoint]:
@@ -866,36 +1153,21 @@ class StockDataService:
         )
 
     def _fetch_cn_quote(self, ticker: str) -> StockUpdate:
-        frame = ak.stock_zh_a_spot_em()
-        if frame is None or getattr(frame, "empty", True):
-            raise ValueError("CN quote frame is empty")
-
-        code_column = self._find_column([str(column) for column in frame.columns], "浠ｇ爜", "symbol", "ticker")
-        if not code_column:
-            raise ValueError("CN quote code column not found")
-
-        matched = frame[frame[code_column].astype(str) == ticker]
-        if matched.empty:
+        quote = self._fetch_cn_quote_snapshot_map([ticker]).get(ticker)
+        if not quote or quote.get("price") is None:
             raise ValueError(f"CN quote not found for {ticker}")
 
-        row = matched.iloc[0]
-        columns = [str(column) for column in matched.columns]
-        price_column = self._find_column(columns, "鏈€鏂颁环", "close", "price")
-        previous_close_column = self._find_column(columns, "鏄ㄦ敹", "previous", "preclose")
-        volume_column = self._find_column(columns, "成交量", "volume")
-
-        if not all([price_column, previous_close_column, volume_column]):
-            raise ValueError("CN quote columns missing")
-
-        current_price = float(row[price_column])
-        previous_close = float(row[previous_close_column])
-        volume = int(float(row[volume_column]))
-        change_percent = 0.0 if previous_close == 0 else ((current_price - previous_close) / previous_close) * 100
-        return StockUpdate(
+        volume_lots = int(quote.get("volume_lots") or 0)
+        return self._build_stock_update(
             ticker=ticker,
-            price=round(current_price, 2),
-            volume=volume,
-            change_percent=round(change_percent, 2),
+            price=float(quote["price"]),
+            volume=volume_lots * 100,
+            previous_close=quote.get("previous_close"),
+            open_price=quote.get("open_price"),
+            high_price=quote.get("high_price"),
+            low_price=quote.get("low_price"),
+            amount=(quote.get("amount_10k") or 0) * 10000 if quote.get("amount_10k") is not None else None,
+            turnover_rate=quote.get("turnover_rate"),
         )
 
     async def get_real_time_data(self, ticker: str) -> StockUpdate:
@@ -976,26 +1248,32 @@ class StockDataService:
             ]
 
         try:
-            frame = await self._run_with_timeout(ak.stock_zh_a_spot_em)
-            if frame is None or getattr(frame, "empty", True):
-                raise ValueError("CN stock list is empty")
-            columns = [str(column) for column in frame.columns]
-            code_column = self._find_column(columns, "浠ｇ爜", "symbol", "ticker")
-            name_column = self._find_column(columns, "鍚嶇О", "name")
-            if not code_column or not name_column:
-                raise ValueError("CN stock list columns missing")
-            filtered = frame[
-                frame[code_column].astype(str).str.contains(query, case=False, na=False)
-                | frame[name_column].astype(str).str.contains(query, case=False, na=False)
-            ]
-            for _, row in filtered.head(20).iterrows():
-                results.append(
-                    {
-                        "ticker": str(row[code_column]),
-                        "name": str(row[name_column]),
-                    }
-                )
-            return results
+            params = urllib.parse.urlencode(
+                {
+                    "input": query,
+                    "type": "14",
+                    "token": "D43BF722C8E33BDC906FB84D85E326E8",
+                }
+            )
+            request = urllib.request.Request(
+                f"https://searchapi.eastmoney.com/api/suggest/get?{params}",
+                headers={
+                    **self.http_headers,
+                    "Referer": "https://quote.eastmoney.com/",
+                },
+            )
+            payload = await self._run_with_timeout(self._http_get_json, request.full_url)
+            entries = payload.get("QuotationCodeTable", {}).get("Data") or []
+            for item in entries[:20]:
+                ticker = str(item.get("Code") or "").strip()
+                name = str(item.get("Name") or "").strip()
+                classify = str(item.get("Classify") or "")
+                if not ticker or not name or classify != "AStock":
+                    continue
+                results.append({"ticker": ticker, "name": name})
+            if results:
+                return results
+            raise ValueError("CN search returned empty")
         except Exception as exc:
             print(f"Error searching CN stocks: {exc}")
             cn_stocks = [
@@ -1170,6 +1448,29 @@ class StockDataService:
 
     async def _get_hotspot_proxy_rows(self, market: str) -> list[dict[str, Any]]:
         universe = self.market_hotspot_universe.get(market, self.market_hotspot_universe["US"])
+        if market == "CN":
+            quote_map = await self._run_with_timeout(
+                self._fetch_cn_quote_snapshot_map,
+                [item["ticker"] for item in universe],
+            )
+            rows: list[dict[str, Any]] = []
+            for item in universe:
+                quote = quote_map.get(item["ticker"])
+                if not quote or quote.get("price") is None:
+                    continue
+                rows.append(
+                    {
+                        "ticker": item["ticker"],
+                        "name": item["name"],
+                        "price": round(float(quote["price"]), 2),
+                        "change_percent": round(float(quote.get("change_percent") or 0.0), 2),
+                        "change": round(float(quote.get("change") or 0.0), 2),
+                        "volume": int((quote.get("volume_lots") or 0) * 100),
+                        "amplitude_percent": None,
+                    }
+                )
+            return rows
+
         quotes = await asyncio.gather(
             *(self.get_real_time_data(item["ticker"]) for item in universe),
             return_exceptions=True,
@@ -1354,9 +1655,12 @@ class StockDataService:
         cached_response = self._load_market_hotspot_cache(
             normalized_market, self.market_hotspot_cache_ttl_seconds
         )
-        has_polygon_full_market = normalized_market == "US" and bool(self.polygon_api_key)
+        expects_full_market = (
+            (normalized_market == "US" and bool(self.polygon_api_key))
+            or normalized_market == "CN"
+        )
         if cached_response is not None and (
-            not has_polygon_full_market
+            not expects_full_market
             or cached_response.get("summary", {}).get("mode") == "full_market"
         ):
             return cached_response
@@ -1373,16 +1677,25 @@ class StockDataService:
                     proxy_rows,
                     timeout=self.market_source_timeout_seconds,
                 )
+            elif normalized_market == "CN":
+                proxy_rows = await self._get_hotspot_proxy_rows(normalized_market)
+                response = await self._run_with_timeout(
+                    self._build_cn_full_market_hotspots,
+                    proxy_rows,
+                    timeout=max(self.market_source_timeout_seconds, 45.0),
+                )
             else:
                 response = await self._build_proxy_market_hotspots(normalized_market)
         except Exception as exc:
             print(f"Error fetching market hotspots for {normalized_market}: {exc}")
             if stale_response is not None and (
-                not has_polygon_full_market
+                not expects_full_market
                 or stale_response.get("summary", {}).get("mode") == "full_market"
             ):
                 return stale_response
             if normalized_market == "US":
+                response = await self._build_proxy_market_hotspots(normalized_market)
+            elif normalized_market == "CN":
                 response = await self._build_proxy_market_hotspots(normalized_market)
             else:
                 raise

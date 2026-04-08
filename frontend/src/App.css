@@ -108,6 +108,7 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 0.75rem;
+  min-width: 0;
 }
 
 .eyebrow {
@@ -141,6 +142,8 @@
   padding: 0.4rem 0.8rem;
   color: var(--text-secondary);
   font-size: 0.85rem;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .language-toggle {
@@ -373,6 +376,7 @@
   display: flex;
   flex-direction: column;
   gap: 1.25rem;
+  min-width: 0;
   padding: 1.5rem;
 }
 
@@ -632,7 +636,7 @@
 }
 
 .hotspot-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   margin-bottom: 1rem;
 }
 
@@ -723,7 +727,7 @@
 
 .hotspot-hero-card {
   display: grid;
-  grid-template-columns: minmax(0, 1.6fr) 220px;
+  grid-template-columns: minmax(0, 1.6fr) minmax(180px, 220px);
   gap: 1.25rem;
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 30px;
@@ -741,6 +745,7 @@
   gap: 0.8rem;
   align-items: flex-start;
   justify-content: space-between;
+  min-width: 0;
 }
 
 .hotspot-hero-copy {
@@ -793,7 +798,7 @@
 }
 
 .hotspot-radar-core strong {
-  font-size: 2.5rem;
+  font-size: clamp(2rem, 4vw, 2.5rem);
   line-height: 1;
 }
 
@@ -813,7 +818,7 @@
 
 .heatmap-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 0.85rem;
   margin-top: 1rem;
 }
@@ -867,6 +872,7 @@
   margin-top: 0.2rem;
   color: rgba(255, 255, 255, 0.92);
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .heatmap-tile small {
@@ -984,6 +990,7 @@
 
 .flow-chip {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
@@ -1007,7 +1014,7 @@
 
 .hotspot-row {
   display: grid;
-  grid-template-columns: 36px 48px 88px minmax(0, 1.3fr) 120px 100px;
+  grid-template-columns: 36px 48px minmax(72px, 88px) minmax(0, 1.3fr) minmax(78px, auto) minmax(72px, auto);
   align-items: center;
   gap: 0.85rem;
   border: 1px solid var(--stroke-soft);
@@ -1024,6 +1031,10 @@
     box-shadow 160ms ease;
 }
 
+.hotspot-row > * {
+  min-width: 0;
+}
+
 .hotspot-row:hover,
 .top-nav-group button:hover {
   transform: translateY(-1px);
@@ -1032,10 +1043,12 @@
 
 .hotspot-row span {
   color: var(--text-dim);
+  overflow-wrap: anywhere;
 }
 
 .hotspot-row strong {
   letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
 }
 
 .hotspot-row--gainers {
@@ -1173,9 +1186,14 @@
     grid-template-columns: 1fr;
   }
 
-  .hotspot-visual-layout,
-  .heatmap-grid {
+  .hotspot-visual-layout {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .hotspot-row {
+    grid-template-columns: 32px 40px minmax(64px, 80px) minmax(0, 1fr) minmax(72px, auto) minmax(68px, auto);
+    gap: 0.7rem;
+    padding: 0.8rem 0.9rem;
   }
 }
 
@@ -1199,8 +1217,7 @@
     grid-template-columns: 1fr;
   }
 
-  .hotspot-visual-layout,
-  .heatmap-grid {
+  .hotspot-visual-layout {
     grid-template-columns: 1fr;
   }
 
@@ -1208,8 +1225,13 @@
     grid-template-columns: 1fr;
   }
 
+  .hotspot-hero-tags,
+  .top-nav {
+    align-items: stretch;
+  }
+
   .hotspot-row {
-    grid-template-columns: 32px 40px 72px minmax(0, 1fr);
+    grid-template-columns: 32px 40px minmax(64px, 72px) minmax(0, 1fr);
   }
 }
 

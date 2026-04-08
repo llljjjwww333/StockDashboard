@@ -64,6 +64,9 @@ type HotspotResponse = {
     proxy_count?: number;
     vix?: number | null;
     vix_change?: number | null;
+    activity_ratio?: number | null;
+    halted?: number | null;
+    universe_count?: number | null;
   };
   updated_at: string;
 };
@@ -147,6 +150,7 @@ const translations = {
     breadthRatio: '上涨占比',
     limitUp: '涨停',
     limitDown: '跌停',
+    halted: '停牌',
     newHigh: '创新高',
     newLow: '创新低',
     mainFlow: '主力净流入',
@@ -154,8 +158,8 @@ const translations = {
     szIndex: '深证涨跌幅',
     proxyMode: '代理口径',
     sectorHeatmap: '板块热力图',
-    vixLabel: 'VIX 波动率',
-    usOnly: '免费版 · 板块 + 榜单',
+    vixLabel: '波动/活跃度',
+    usOnly: '免费版 · 热力总览',
     advancers: '上涨',
     decliners: '下跌',
     flatCount: '平盘',
@@ -239,6 +243,7 @@ const translations = {
     breadthRatio: 'Advancer Ratio',
     limitUp: 'Limit Up',
     limitDown: 'Limit Down',
+    halted: 'Halted',
     newHigh: 'New High',
     newLow: 'New Low',
     mainFlow: 'Main Flow',
@@ -246,8 +251,8 @@ const translations = {
     szIndex: 'Shenzhen %',
     proxyMode: 'Proxy Mode',
     sectorHeatmap: 'Sector Heatmap',
-    vixLabel: 'VIX',
-    usOnly: 'Free Mode · Sectors + Movers',
+    vixLabel: 'Volatility / Activity',
+    usOnly: 'Free Mode · Heat Dashboard',
     advancers: 'Advancers',
     decliners: 'Decliners',
     flatCount: 'Flat',
@@ -326,7 +331,7 @@ function App() {
   const { watchlist, selectedTicker, addToWatchlist, removeFromWatchlist, selectStock, updateStockQuote } = useStockStore();
   const [language, setLanguage] = useState<Language>(() => detectInitialLanguage());
   const [activeModule, setActiveModule] = useState<TopModule>('dashboard');
-  const hotspotMarket: MarketType = 'US';
+  const [hotspotMarket, setHotspotMarket] = useState<MarketType>('US');
   const [activePeriod, setActivePeriod] = useState<PeriodKey>('1mo');
   const [intradayInterval, setIntradayInterval] = useState<IntradayInterval>('15m');
   const [searchText, setSearchText] = useState('');
@@ -557,6 +562,9 @@ function App() {
   ] : [];
   const hotspotData = hotspotState.data;
   const hotspotHeatmapRows = hotspotData?.sectors?.length ? hotspotData.sectors : hotspotData ? [...hotspotData.indices, ...hotspotData.leaders.slice(0, 4), ...hotspotData.laggards.slice(0, 4)] : [];
+  const hotspotSignalLabel = hotspotMarket === 'CN' ? (language === 'zh' ? '市场活跃度' : 'Market Activity') : t.vixLabel;
+  const hotspotSignalValue = hotspotMarket === 'CN' ? hotspotData?.summary.activity_ratio ?? hotspotData?.summary.vix ?? null : hotspotData?.summary.vix ?? null;
+  const hotspotSignalChange = hotspotMarket === 'US' ? hotspotData?.summary.vix_change ?? null : null;
   const openHotspotStock = (stock: HotspotRow) => {
     addToWatchlist({
       ticker: stock.ticker,
@@ -611,6 +619,10 @@ function App() {
                   <p className="hero-summary">{t.hotspotHint}</p>
                 </div>
                 <div className="hotspot-hero-tags">
+                  <div className="market-toggle hotspot-market-toggle">
+                    <button type="button" className={hotspotMarket === 'US' ? 'active' : ''} onClick={() => setHotspotMarket('US')}>US</button>
+                    <button type="button" className={hotspotMarket === 'CN' ? 'active' : ''} onClick={() => setHotspotMarket('CN')}>CN</button>
+                  </div>
                   <span className="status-pill">{t.usOnly}</span>
                   <span className="status-pill">{t.marketUpdated} {hotspotData ? formatDateTime(hotspotData.updated_at) : t.waitingUpdate}</span>
                 </div>
@@ -643,12 +655,16 @@ function App() {
                 </div>
               </article>
               <article className="info-card hotspot-card hotspot-stat-card">
-                <p>{t.vixLabel}</p>
-                <strong>{hotspotData.summary.vix?.toFixed(2) ?? '--'}</strong>
+                <p>{hotspotSignalLabel}</p>
+                <strong>{hotspotSignalValue !== null && hotspotSignalValue !== undefined ? `${hotspotSignalValue.toFixed(2)}${hotspotMarket === 'CN' ? '%' : ''}` : '--'}</strong>
                 <div className="hotspot-stat-cluster">
-                  <span className={`stat-chip ${(hotspotData.summary.vix_change ?? 0) >= 0 ? 'stat-chip--down' : 'stat-chip--up'}`}>
-                    {hotspotData.summary.vix_change !== null && hotspotData.summary.vix_change !== undefined ? `${formatSigned(hotspotData.summary.vix_change)}%` : '--'}
-                  </span>
+                  {hotspotMarket === 'CN' ? (
+                    <span className="stat-chip stat-chip--accent">⏸ {t.halted} {hotspotData.summary.halted ?? 0}</span>
+                  ) : (
+                    <span className={`stat-chip ${(hotspotSignalChange ?? 0) >= 0 ? 'stat-chip--down' : 'stat-chip--up'}`}>
+                      {hotspotSignalChange !== null && hotspotSignalChange !== undefined ? `${formatSigned(hotspotSignalChange)}%` : '--'}
+                    </span>
+                  )}
                 </div>
               </article>
             </div>
