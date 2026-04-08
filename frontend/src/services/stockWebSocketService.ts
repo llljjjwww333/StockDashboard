@@ -1,5 +1,14 @@
 import { useStockStore } from '../store/stockStore';
 
+const getDefaultWebSocketBaseUrl = () => {
+  if (typeof window === 'undefined') {
+    return 'ws://127.0.0.1:8000';
+  }
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.hostname}:8000`;
+};
+
 class StockWebSocketService {
   private socket: WebSocket | null = null;
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -18,23 +27,23 @@ class StockWebSocketService {
 
     try {
       console.log('Attempting to connect to WebSocket server...');
-      // 使用环境变量或默认值
-      const wsUrl = import.meta.env.VITE_WS_URL || 'ws://127.0.0.1:8000';
+      const wsUrl = import.meta.env.VITE_WS_URL || getDefaultWebSocketBaseUrl();
       this.socket = new WebSocket(`${wsUrl}/ws/stock-updates`);
 
       this.socket.onopen = () => {
         console.log('WebSocket connected');
         this.isConnected = true;
         this.subscribedTickers.clear();
-        
-        // 订阅所有在 watchlist 中的股票
+
         const currentWatchlist = useStockStore.getState().watchlist;
-        currentWatchlist.forEach(stock => {
+        currentWatchlist.forEach((stock) => {
           if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-            this.socket.send(JSON.stringify({
-              type: 'subscribe',
-              data: { ticker: stock.ticker }
-            }));
+            this.socket.send(
+              JSON.stringify({
+                type: 'subscribe',
+                data: { ticker: stock.ticker },
+              }),
+            );
             this.subscribedTickers.add(stock.ticker);
           }
         });
@@ -65,8 +74,7 @@ class StockWebSocketService {
         console.log('WebSocket disconnected');
         this.isConnected = false;
         this.subscribedTickers.clear();
-        
-        // 5秒后重新连接，避免频繁的重新连接
+
         if (this.reconnectTimeout) {
           clearTimeout(this.reconnectTimeout);
         }
@@ -75,8 +83,7 @@ class StockWebSocketService {
     } catch (error) {
       console.error('Error connecting to WebSocket:', error);
       this.isConnected = false;
-      
-      // 5秒后重新连接，避免频繁的重新连接
+
       if (this.reconnectTimeout) {
         clearTimeout(this.reconnectTimeout);
       }
@@ -89,19 +96,16 @@ class StockWebSocketService {
       return;
     }
 
-    // 获取当前 watchlist 中的股票
     const currentWatchlist = useStockStore.getState().watchlist;
-    const currentTickers = new Set(currentWatchlist.map(stock => stock.ticker));
-    
-    // 取消订阅不在 watchlist 中的股票
-    this.subscribedTickers.forEach(ticker => {
+    const currentTickers = new Set(currentWatchlist.map((stock) => stock.ticker));
+
+    this.subscribedTickers.forEach((ticker) => {
       if (!currentTickers.has(ticker)) {
         this.unsubscribeFromStock(ticker);
       }
     });
-    
-    // 订阅新添加到 watchlist 中的股票
-    currentTickers.forEach(ticker => {
+
+    currentTickers.forEach((ticker) => {
       if (!this.subscribedTickers.has(ticker)) {
         this.subscribeToStock(ticker);
       }
@@ -109,23 +113,35 @@ class StockWebSocketService {
   }
 
   subscribeToStock(ticker: string) {
-    if (this.socket && this.socket.readyState === WebSocket.OPEN && !this.subscribedTickers.has(ticker)) {
+    if (
+      this.socket &&
+      this.socket.readyState === WebSocket.OPEN &&
+      !this.subscribedTickers.has(ticker)
+    ) {
       console.log(`Subscribing to ${ticker}`);
-      this.socket.send(JSON.stringify({
-        type: 'subscribe',
-        data: { ticker }
-      }));
+      this.socket.send(
+        JSON.stringify({
+          type: 'subscribe',
+          data: { ticker },
+        }),
+      );
       this.subscribedTickers.add(ticker);
     }
   }
 
   unsubscribeFromStock(ticker: string) {
-    if (this.socket && this.socket.readyState === WebSocket.OPEN && this.subscribedTickers.has(ticker)) {
+    if (
+      this.socket &&
+      this.socket.readyState === WebSocket.OPEN &&
+      this.subscribedTickers.has(ticker)
+    ) {
       console.log(`Unsubscribing from ${ticker}`);
-      this.socket.send(JSON.stringify({
-        type: 'unsubscribe',
-        data: { ticker }
-      }));
+      this.socket.send(
+        JSON.stringify({
+          type: 'unsubscribe',
+          data: { ticker },
+        }),
+      );
       this.subscribedTickers.delete(ticker);
     }
   }
@@ -148,5 +164,4 @@ class StockWebSocketService {
   }
 }
 
-// 创建单例实例
 export const stockWebSocketService = new StockWebSocketService();

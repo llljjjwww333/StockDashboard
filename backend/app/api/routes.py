@@ -39,3 +39,13 @@ async def search_stocks(query: str = Query(..., description="Search query for st
         return {"results": results}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error searching stocks: {str(e)}")
+
+@router.get("/market/hotspots")
+async def get_market_hotspots(
+    market: str = Query("US", description="Market type: US or CN")
+):
+    """Get market-wide hotspot data for a representative universe."""
+    try:
+        return await stock_service.get_market_hotspots(market)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching market hotspots: {str(e)}")

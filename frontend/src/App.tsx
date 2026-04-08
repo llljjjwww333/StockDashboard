@@ -8,6 +8,7 @@ import { type MarketType, useStockStore } from './store/stockStore';
 type PeriodKey = '1d' | '1wk' | '1mo' | '3mo' | '1y';
 type IntradayInterval = '5m' | '15m';
 type Language = 'zh' | 'en';
+type TopModule = 'dashboard' | 'hot';
 type SearchResult = { ticker: string; name: string };
 type HistoryPoint = { timestamp: string; open: number; high: number; low: number; close: number; volume: number };
 type QuoteResponse = {
@@ -24,8 +25,89 @@ type QuoteResponse = {
   turnover_rate?: number | null;
   amplitude_percent?: number | null;
 };
+type HotspotRow = {
+  ticker: string;
+  name: string;
+  price: number;
+  change_percent: number;
+  change?: number | null;
+  volume: number;
+  amplitude_percent?: number | null;
+};
+type HotspotResponse = {
+  market: MarketType;
+  indices: HotspotRow[];
+  sectors?: (HotspotRow & { sector?: string })[];
+  leaders: HotspotRow[];
+  laggards: HotspotRow[];
+  active: HotspotRow[];
+  breadth: {
+    advancers: number;
+    decliners: number;
+    flat: number;
+    total: number;
+  };
+  summary: {
+    market: MarketType;
+    mode: string;
+    breadth_ratio: number;
+    up?: number;
+    down?: number;
+    flat?: number;
+    limit_up?: number;
+    limit_down?: number;
+    new_high?: number;
+    new_low?: number;
+    main_flow_net?: number;
+    sh_change?: number;
+    sz_change?: number;
+    proxy_count?: number;
+    vix?: number | null;
+    vix_change?: number | null;
+  };
+  updated_at: string;
+};
 type DetailState = { history: HistoryPoint[]; related: string[]; loading: boolean; error: string | null; lastUpdated: string | null };
 type SnapshotState = { quote: QuoteResponse | null; history: HistoryPoint[]; loading: boolean; error: string | null; lastUpdated: string | null };
+
+const DETAIL_CACHE_TTL_MS = 2 * 60 * 1000;
+const SNAPSHOT_CACHE_TTL_MS = 60 * 1000;
+const HOTSPOT_CACHE_TTL_MS = 15 * 60 * 1000;
+
+const readCachedValue = <T,>(key: string, ttlMs: number): T | null => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as { savedAt: number; value: T };
+    if (!parsed?.savedAt || Date.now() - parsed.savedAt > ttlMs) {
+      window.localStorage.removeItem(key);
+      return null;
+    }
+
+    return parsed.value;
+  } catch {
+    return null;
+  }
+};
+
+const writeCachedValue = <T,>(key: string, value: T) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), value }));
+  } catch {
+    // Ignore storage quota or serialization issues for UI cache.
+  }
+};
 
 const periodOptions: Array<{ key: PeriodKey; label: string }> = [
   { key: '1d', label: '1D' },
@@ -50,6 +132,38 @@ const periodDisplayLabel: Record<Language, Record<PeriodKey, string>> = {
 const translations = {
   zh: {
     watchlist: '自选',
+    home: '看板',
+    hotspot: '热点',
+    hotspotTitle: '市场热点',
+    hotspotHint: '免费版热点页聚焦板块强弱、核心指数，以及当日股票涨跌榜与活跃榜。',
+    hotspotLead: '涨幅榜',
+    hotspotSwing: '跌幅榜',
+    hotspotActive: '活跃榜',
+    marketOverview: '市场概览',
+    marketBreadth: '涨跌分布',
+    marketIndices: '核心指数',
+    marketUpdated: '市场更新时间',
+    marketSummary: '全市场概括',
+    breadthRatio: '上涨占比',
+    limitUp: '涨停',
+    limitDown: '跌停',
+    newHigh: '创新高',
+    newLow: '创新低',
+    mainFlow: '主力净流入',
+    shIndex: '上证涨跌幅',
+    szIndex: '深证涨跌幅',
+    proxyMode: '代理口径',
+    sectorHeatmap: '板块热力图',
+    vixLabel: 'VIX 波动率',
+    usOnly: '免费版 · 板块 + 榜单',
+    advancers: '上涨',
+    decliners: '下跌',
+    flatCount: '平盘',
+    hotspotEmpty: '暂无市场热点数据。',
+    heatmap: '热力图',
+    volumePulse: '成交量脉冲',
+    amplitudeMap: '振幅图谱',
+    cacheReady: '已从本地缓存恢复，后台同步刷新中。',
     names: '只股票',
     addStock: '添加股票',
     searching: '搜索中...',
@@ -110,6 +224,38 @@ const translations = {
   },
   en: {
     watchlist: 'Watchlist',
+    home: 'Dashboard',
+    hotspot: 'Hotspot',
+    hotspotTitle: 'Market Hotspots',
+    hotspotHint: 'This free hotspot page focuses on sector breadth, core indices, and daily stock mover boards.',
+    hotspotLead: 'Top Gainers',
+    hotspotSwing: 'Top Losers',
+    hotspotActive: 'Most Active',
+    marketOverview: 'Market Overview',
+    marketBreadth: 'Breadth',
+    marketIndices: 'Core Indices',
+    marketUpdated: 'Market Updated',
+    marketSummary: 'Whole Market Summary',
+    breadthRatio: 'Advancer Ratio',
+    limitUp: 'Limit Up',
+    limitDown: 'Limit Down',
+    newHigh: 'New High',
+    newLow: 'New Low',
+    mainFlow: 'Main Flow',
+    shIndex: 'Shanghai %',
+    szIndex: 'Shenzhen %',
+    proxyMode: 'Proxy Mode',
+    sectorHeatmap: 'Sector Heatmap',
+    vixLabel: 'VIX',
+    usOnly: 'Free Mode · Sectors + Movers',
+    advancers: 'Advancers',
+    decliners: 'Decliners',
+    flatCount: 'Flat',
+    hotspotEmpty: 'No market hotspot data yet.',
+    heatmap: 'Heatmap',
+    volumePulse: 'Volume Pulse',
+    amplitudeMap: 'Amplitude Map',
+    cacheReady: 'Loaded from local cache and refreshing in the background.',
     names: 'names',
     addStock: 'Add stock',
     searching: 'Searching...',
@@ -179,6 +325,8 @@ const detectInitialLanguage = (): Language => {
 function App() {
   const { watchlist, selectedTicker, addToWatchlist, removeFromWatchlist, selectStock, updateStockQuote } = useStockStore();
   const [language, setLanguage] = useState<Language>(() => detectInitialLanguage());
+  const [activeModule, setActiveModule] = useState<TopModule>('dashboard');
+  const hotspotMarket: MarketType = 'US';
   const [activePeriod, setActivePeriod] = useState<PeriodKey>('1mo');
   const [intradayInterval, setIntradayInterval] = useState<IntradayInterval>('15m');
   const [searchText, setSearchText] = useState('');
@@ -186,6 +334,8 @@ function App() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [hotspotState, setHotspotState] = useState<{ data: HotspotResponse | null; loading: boolean; error: string | null }>({ data: null, loading: false, error: null });
+  const [hotspotUsedCache, setHotspotUsedCache] = useState(false);
   const [detailState, setDetailState] = useState<DetailState>({ history: [], related: [], loading: true, error: null, lastUpdated: null });
   const [snapshotState, setSnapshotState] = useState<SnapshotState>({ quote: null, history: [], loading: true, error: null, lastUpdated: null });
   const historyCacheRef = useRef<Record<string, { history: HistoryPoint[]; lastUpdated: string }>>({});
@@ -207,6 +357,51 @@ function App() {
   }, [language]);
 
   useEffect(() => {
+    if (activeModule !== 'hot') {
+      return;
+    }
+
+    let cancelled = false;
+    const hotspotCacheKey = `stock-dashboard:hotspot:${hotspotMarket}`;
+    const cachedData = readCachedValue<HotspotResponse>(hotspotCacheKey, HOTSPOT_CACHE_TTL_MS);
+    setHotspotUsedCache(Boolean(cachedData));
+    if (cachedData) {
+      setHotspotState({ data: cachedData, loading: false, error: null });
+    } else {
+      setHotspotState((current) => ({ ...current, loading: true, error: null }));
+    }
+    const load = async () => {
+      if (!cachedData) {
+        setHotspotState((current) => ({ ...current, loading: true, error: null }));
+      }
+      try {
+        const response = await fetch(buildApiUrl(`/market/hotspots?market=${hotspotMarket}`));
+        if (!response.ok) {
+          throw new Error(t.failedToLoadMarketData);
+        }
+        const data: HotspotResponse = await response.json();
+        writeCachedValue(hotspotCacheKey, data);
+        if (!cancelled) {
+          setHotspotUsedCache(false);
+          setHotspotState({ data, loading: false, error: null });
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setHotspotState({
+            data: cachedData,
+            loading: false,
+            error: cachedData ? null : (error instanceof Error ? error.message : t.unknownError),
+          });
+        }
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeModule, hotspotMarket, t.failedToLoadMarketData, t.unknownError]);
+
+  useEffect(() => {
     stockWebSocketService.connect();
     const unsubscribe = useStockStore.subscribe(() => stockWebSocketService.updateSubscriptions());
     return () => { stockWebSocketService.disconnect(); unsubscribe(); };
@@ -220,7 +415,17 @@ function App() {
     const cacheKey = `${selectedTickerSafe}:${activePeriod}:${effectiveInterval}`;
     const cachedHistory = historyCacheRef.current[cacheKey];
     const cachedRelated = relatedCacheRef.current[selectedTickerSafe];
-    if (cachedHistory) { setDetailState({ history: cachedHistory.history, related: cachedRelated ?? [], loading: false, error: null, lastUpdated: cachedHistory.lastUpdated }); return () => { cancelled = true; }; }
+    const detailStorageKey = `stock-dashboard:detail:${cacheKey}`;
+    const cachedDetail = readCachedValue<{ history: HistoryPoint[]; related: string[]; lastUpdated: string }>(detailStorageKey, DETAIL_CACHE_TTL_MS);
+    if (cachedHistory) {
+      setDetailState({ history: cachedHistory.history, related: cachedRelated ?? [], loading: false, error: null, lastUpdated: cachedHistory.lastUpdated });
+      return () => { cancelled = true; };
+    }
+    if (cachedDetail) {
+      historyCacheRef.current[cacheKey] = { history: cachedDetail.history, lastUpdated: cachedDetail.lastUpdated };
+      relatedCacheRef.current[selectedTickerSafe] = cachedDetail.related;
+      setDetailState({ history: cachedDetail.history, related: cachedDetail.related, loading: true, error: null, lastUpdated: cachedDetail.lastUpdated });
+    }
     const load = async () => {
       setDetailState((current) => ({ ...current, loading: true, error: null }));
       try {
@@ -234,6 +439,7 @@ function App() {
         const nextRelated = relatedData?.recommendations ?? cachedRelated ?? [];
         historyCacheRef.current[cacheKey] = { history: historyData.data, lastUpdated };
         relatedCacheRef.current[selectedTickerSafe] = nextRelated;
+        writeCachedValue(detailStorageKey, { history: historyData.data, related: nextRelated, lastUpdated });
         updateStockQuote(selectedTickerSafe, { price: quoteData.price, changePercent: quoteData.change_percent, volume: quoteData.volume });
         setDetailState({ history: historyData.data, related: nextRelated, loading: false, error: null, lastUpdated });
       } catch (error) {
@@ -248,8 +454,16 @@ function App() {
     if (!selectedTickerSafe) { setSnapshotState({ quote: null, history: [], loading: false, error: null, lastUpdated: null }); return; }
     let cancelled = false;
     const cached = snapshotCacheRef.current[selectedTickerSafe];
-    if (cached) setSnapshotState({ quote: cached.quote, history: cached.history, loading: false, error: null, lastUpdated: cached.lastUpdated });
-    else setSnapshotState({ quote: null, history: [], loading: true, error: null, lastUpdated: null });
+    const snapshotStorageKey = `stock-dashboard:snapshot:${selectedTickerSafe}`;
+    const cachedSnapshot = readCachedValue<{ quote: QuoteResponse; history: HistoryPoint[]; lastUpdated: string }>(snapshotStorageKey, SNAPSHOT_CACHE_TTL_MS);
+    if (cached) {
+      setSnapshotState({ quote: cached.quote, history: cached.history, loading: false, error: null, lastUpdated: cached.lastUpdated });
+    } else if (cachedSnapshot) {
+      snapshotCacheRef.current[selectedTickerSafe] = cachedSnapshot;
+      setSnapshotState({ quote: cachedSnapshot.quote, history: cachedSnapshot.history, loading: true, error: null, lastUpdated: cachedSnapshot.lastUpdated });
+    } else {
+      setSnapshotState({ quote: null, history: [], loading: true, error: null, lastUpdated: null });
+    }
     const load = async () => {
       try {
         const [quoteResponse, historyResponse] = await Promise.all([fetch(buildApiUrl(`/stocks/${selectedTickerSafe}/quote`)), fetch(buildApiUrl(`/stocks/${selectedTickerSafe}/history?period=1d&interval=5m`))]);
@@ -259,6 +473,7 @@ function App() {
         if (cancelled) return;
         const lastUpdated = new Date().toISOString();
         snapshotCacheRef.current[selectedTickerSafe] = { quote, history: historyData.data, lastUpdated };
+        writeCachedValue(snapshotStorageKey, { quote, history: historyData.data, lastUpdated });
         setSnapshotState({ quote, history: historyData.data, loading: false, error: null, lastUpdated });
       } catch (error) {
         if (!cancelled) setSnapshotState((current) => ({ ...current, loading: false, error: error instanceof Error ? error.message : t.unknownError }));
@@ -307,16 +522,23 @@ function App() {
   const latestClose = latestBar?.close ?? selectedStock?.price ?? 0;
   const quote = snapshotState.quote;
   const dayHistory = snapshotState.history;
-  const latestSnapshotBar = dayHistory[dayHistory.length - 1] ?? null;
-  const todayPrice = selectedStock?.price ?? quote?.price ?? latestClose;
-  const previousClose = quote?.previous_close ?? (selectedStock && selectedStock.changePercent !== -100 ? selectedStock.price / (1 + selectedStock.changePercent / 100) : todayPrice);
-  const todayDelta = quote?.change ?? todayPrice - previousClose;
-  const todayDeltaPercent = selectedStock?.changePercent ?? quote?.change_percent ?? (previousClose === 0 ? 0 : (todayDelta / previousClose) * 100);
+  const todayPrice = quote?.price ?? selectedStock?.price ?? latestClose;
+  const historyHigh = dayHistory.length ? Math.max(...dayHistory.map((item) => item.high)) : todayPrice;
+  const historyLow = dayHistory.length ? Math.min(...dayHistory.map((item) => item.low)) : todayPrice;
+  const previousClose =
+    quote?.previous_close ??
+    (quote?.change_percent !== undefined && quote.change_percent !== null
+      ? todayPrice / (1 + quote.change_percent / 100)
+      : selectedStock && selectedStock.changePercent !== -100
+        ? todayPrice / (1 + selectedStock.changePercent / 100)
+        : todayPrice);
+  const todayDelta = todayPrice - previousClose;
+  const todayDeltaPercent = previousClose === 0 ? 0 : (todayDelta / previousClose) * 100;
   const dayOpen = quote?.open_price ?? dayHistory[0]?.open ?? previousClose ?? todayPrice;
-  const dayHigh = Math.max(quote?.high_price ?? todayPrice, latestSnapshotBar?.high ?? todayPrice, todayPrice);
-  const dayLow = Math.min(quote?.low_price ?? todayPrice, latestSnapshotBar?.low ?? todayPrice, todayPrice);
+  const dayHigh = Math.max(quote?.high_price ?? todayPrice, historyHigh, todayPrice);
+  const dayLow = Math.min(quote?.low_price ?? todayPrice, historyLow, todayPrice);
   const dayRange = dayHigh - dayLow;
-  const dayAmplitude = quote?.amplitude_percent ?? (previousClose === 0 ? 0 : (dayRange / previousClose) * 100);
+  const dayAmplitude = previousClose === 0 ? 0 : (dayRange / previousClose) * 100;
   const avgBarVolume = dayHistory.length ? dayHistory.reduce((sum, item) => sum + item.volume, 0) / dayHistory.length : selectedStock?.volume ?? quote?.volume ?? 0;
   const heroPeriodLabel = activePeriod === '1d' ? `${periodDisplayLabel[language][activePeriod]} ${intradayInterval}` : periodDisplayLabel[language][activePeriod];
   const snapshotUpdated = snapshotState.lastUpdated ?? detailState.lastUpdated;
@@ -333,6 +555,20 @@ function App() {
     { title: t.turnover, value: quote?.amount ? formatCompactNumber(quote.amount) : '--', hint: t.todayAmount },
     { title: t.turnoverRate, value: quote?.turnover_rate !== null && quote?.turnover_rate !== undefined ? `${quote.turnover_rate.toFixed(2)}%` : '--', hint: t.shownWhenAvailable },
   ] : [];
+  const hotspotData = hotspotState.data;
+  const hotspotHeatmapRows = hotspotData?.sectors?.length ? hotspotData.sectors : hotspotData ? [...hotspotData.indices, ...hotspotData.leaders.slice(0, 4), ...hotspotData.laggards.slice(0, 4)] : [];
+  const openHotspotStock = (stock: HotspotRow) => {
+    addToWatchlist({
+      ticker: stock.ticker,
+      name: stock.name,
+      market: hotspotMarket,
+      price: stock.price,
+      changePercent: stock.change_percent,
+      volume: stock.volume,
+    });
+    selectStock(stock.ticker);
+    setActiveModule('dashboard');
+  };
 
   return (
     <div className="terminal-page">
@@ -358,7 +594,193 @@ function App() {
       </aside>
 
       <main className="detail-panel">
-        {selectedStock ? <>
+        <div className="top-nav">
+          <div className="top-nav-group">
+            <button type="button" className={activeModule === 'dashboard' ? 'active' : ''} onClick={() => setActiveModule('dashboard')}>{t.home}</button>
+            <button type="button" className={activeModule === 'hot' ? 'active' : ''} onClick={() => setActiveModule('hot')}>{t.hotspot}</button>
+          </div>
+          <span className="top-nav-status">{snapshotUpdated ? `${t.snapshot} ${formatDateTime(snapshotUpdated)}` : t.waitingUpdate}</span>
+        </div>
+        {activeModule === 'hot' ? (
+          <section className="hotspot-panel hotspot-dashboard">
+            <div className="hotspot-hero-card">
+              <div className="hotspot-hero-copy">
+                <div>
+                  <p className="eyebrow">{t.hotspot}</p>
+                  <h3>{t.hotspotTitle}</h3>
+                  <p className="hero-summary">{t.hotspotHint}</p>
+                </div>
+                <div className="hotspot-hero-tags">
+                  <span className="status-pill">{t.usOnly}</span>
+                  <span className="status-pill">{t.marketUpdated} {hotspotData ? formatDateTime(hotspotData.updated_at) : t.waitingUpdate}</span>
+                </div>
+              </div>
+              <div className="hotspot-radar">
+                <div className="hotspot-radar-core">
+                  <span>{t.marketBreadth}</span>
+                  <strong>{hotspotData ? `${hotspotData.summary.breadth_ratio.toFixed(0)}%` : '--'}</strong>
+                </div>
+              </div>
+            </div>
+            {hotspotState.loading && !hotspotData ? <div className="chart-state">{t.loadingChart}</div> : hotspotState.error && !hotspotData ? <div className="chart-state chart-error">{hotspotState.error}</div> : hotspotData ? <>
+            {hotspotUsedCache ? <p className="empty-copy">{t.cacheReady}</p> : null}
+            <div className="hotspot-grid">
+              <article className="info-card hotspot-card hotspot-stat-card">
+                <p>{t.marketSummary}</p>
+                <strong>{hotspotData.breadth.total}</strong>
+                <div className="hotspot-stat-cluster">
+                  <span className="stat-chip stat-chip--up">▲ {t.advancers} {hotspotData.breadth.advancers}</span>
+                  <span className="stat-chip stat-chip--down">▼ {t.decliners} {hotspotData.breadth.decliners}</span>
+                  <span className="stat-chip">• {t.flatCount} {hotspotData.breadth.flat}</span>
+                </div>
+              </article>
+              <article className="info-card hotspot-card hotspot-stat-card">
+                <p>{t.breadthRatio}</p>
+                <strong>{hotspotData.summary.breadth_ratio.toFixed(2)}%</strong>
+                <div className="hotspot-stat-cluster">
+                  <span className="stat-chip stat-chip--accent">◎ {t.marketIndices}</span>
+                  <span>{hotspotData.indices.length}</span>
+                </div>
+              </article>
+              <article className="info-card hotspot-card hotspot-stat-card">
+                <p>{t.vixLabel}</p>
+                <strong>{hotspotData.summary.vix?.toFixed(2) ?? '--'}</strong>
+                <div className="hotspot-stat-cluster">
+                  <span className={`stat-chip ${(hotspotData.summary.vix_change ?? 0) >= 0 ? 'stat-chip--down' : 'stat-chip--up'}`}>
+                    {hotspotData.summary.vix_change !== null && hotspotData.summary.vix_change !== undefined ? `${formatSigned(hotspotData.summary.vix_change)}%` : '--'}
+                  </span>
+                </div>
+              </article>
+            </div>
+            <div className="insight-layout hotspot-visual-layout">
+              <section className="chart-card">
+                <div className="section-header">
+                  <div>
+                    <h3>{t.sectorHeatmap}</h3>
+                    <p>{t.marketOverview}</p>
+                  </div>
+                </div>
+                <div className="heatmap-grid">
+                  {hotspotHeatmapRows.map((stock) => (
+                    <button
+                      key={stock.ticker}
+                      type="button"
+                      className="heatmap-tile"
+                      style={{ ['--heat' as string]: `${Math.min(Math.abs(stock.change_percent) / 4, 1)}` }}
+                      data-direction={stock.change_percent >= 0 ? 'up' : 'down'}
+                      onClick={() => openHotspotStock(stock)}
+                    >
+                      <strong>{stock.ticker}</strong>
+                      <span>{String(('sector' in stock && stock.sector) ? stock.sector : stock.name)}</span>
+                      <small>{stock.name}</small>
+                      <em className={stock.change_percent >= 0 ? 'positive' : 'negative'}>{formatSigned(stock.change_percent)}%</em>
+                    </button>
+                  ))}
+                </div>
+              </section>
+              <section className="chart-card">
+                <div className="section-header">
+                  <div>
+                    <h3>{t.marketBreadth}</h3>
+                    <p>{t.amplitudeMap}</p>
+                  </div>
+                </div>
+                <BreadthBar
+                  advancers={hotspotData.breadth.advancers}
+                  decliners={hotspotData.breadth.decliners}
+                  flat={hotspotData.breadth.flat}
+                  total={hotspotData.breadth.total}
+                  labels={{ advancers: t.advancers, decliners: t.decliners, flat: t.flatCount }}
+                />
+                <div className="flow-chip">
+                  <strong>{t.marketUpdated}</strong>
+                  <span>{formatDateTime(hotspotData.updated_at)}</span>
+                </div>
+                <VolumePulseChart
+                  title={t.volumePulse}
+                  rows={hotspotData.active}
+                  formatCompactNumber={formatCompactNumber}
+                />
+              </section>
+            </div>
+            <div className="hotspot-board-grid">
+            <section className="chart-card hotspot-table-card hotspot-table-card--indices">
+              <div className="section-header">
+                <div>
+                  <h3>{t.marketIndices}</h3>
+                  <p>{t.marketOverview}</p>
+                </div>
+              </div>
+              <div className="hotspot-list">
+                {hotspotData.indices.map((stock, index) => (
+                  <button key={stock.ticker} type="button" className="hotspot-row hotspot-row--indices" onClick={() => openHotspotStock(stock)}>
+                    <span className="hotspot-icon hotspot-icon--indices">◎</span>
+                    <span className="hotspot-rank">{String(index + 1).padStart(2, '0')}</span>
+                    <strong>{stock.ticker}</strong>
+                    <span>{stock.name}</span>
+                    <span>{getCurrencySymbol(stock.ticker)}{stock.price.toFixed(2)}</span>
+                    <span className={stock.change_percent >= 0 ? 'positive' : 'negative'}>{formatSigned(stock.change_percent)}%</span>
+                  </button>
+                ))}
+                {hotspotData.indices.length === 0 && <p className="empty-copy">{t.hotspotEmpty}</p>}
+              </div>
+            </section>
+            <div className="insight-layout hotspot-movers-grid">
+              <section className="insight-card">
+                <div className="section-header"><div><h3>{t.hotspotLead}</h3><p>{t.marketOverview}</p></div></div>
+                <div className="hotspot-list">
+                  {hotspotData.leaders.map((stock, index) => (
+                    <button key={stock.ticker} type="button" className="hotspot-row hotspot-row--gainers" onClick={() => openHotspotStock(stock)}>
+                      <span className="hotspot-icon hotspot-icon--gainers">▲</span>
+                      <span className="hotspot-rank">{String(index + 1).padStart(2, '0')}</span>
+                      <strong>{stock.ticker}</strong>
+                      <span>{stock.name}</span>
+                      <span>{getCurrencySymbol(stock.ticker)}{stock.price.toFixed(2)}</span>
+                      <span className={stock.change_percent >= 0 ? 'positive' : 'negative'}>{formatSigned(stock.change_percent)}%</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+              <section className="insight-card">
+                <div className="section-header"><div><h3>{t.hotspotSwing}</h3><p>{t.marketOverview}</p></div></div>
+                <div className="hotspot-list">
+                  {hotspotData.laggards.map((stock, index) => (
+                    <button key={stock.ticker} type="button" className="hotspot-row hotspot-row--losers" onClick={() => openHotspotStock(stock)}>
+                      <span className="hotspot-icon hotspot-icon--losers">▼</span>
+                      <span className="hotspot-rank">{String(index + 1).padStart(2, '0')}</span>
+                      <strong>{stock.ticker}</strong>
+                      <span>{stock.name}</span>
+                      <span>{getCurrencySymbol(stock.ticker)}{stock.price.toFixed(2)}</span>
+                      <span className={stock.change_percent >= 0 ? 'positive' : 'negative'}>{formatSigned(stock.change_percent)}%</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            </div>
+            </div>
+            <section className="chart-card hotspot-table-card hotspot-table-card--active">
+              <div className="section-header">
+                <div>
+                  <h3>{t.hotspotActive}</h3>
+                  <p>{t.marketOverview}</p>
+                </div>
+              </div>
+              <div className="hotspot-list">
+                {hotspotData.active.map((stock, index) => (
+                  <button key={stock.ticker} type="button" className="hotspot-row hotspot-row--active" onClick={() => openHotspotStock(stock)}>
+                    <span className="hotspot-icon hotspot-icon--active">◉</span>
+                    <span className="hotspot-rank">{String(index + 1).padStart(2, '0')}</span>
+                    <strong>{stock.ticker}</strong>
+                    <span>{stock.name}</span>
+                    <span>{formatCompactNumber(stock.volume)}</span>
+                    <span className={stock.change_percent >= 0 ? 'positive' : 'negative'}>{formatSigned(stock.change_percent)}%</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+            </> : <p className="empty-copy">{t.hotspotEmpty}</p>}
+          </section>
+        ) : selectedStock ? <>
           <section className="hero-card"><div className="hero-topline"><div><p className="eyebrow">{t.dailySnapshot}</p><h2>{selectedStock.name}<span>{selectedStock.ticker}</span></h2></div><div className="hero-tags"><span>{marketLabel[selectedStock.market]}</span><span>{heroPeriodLabel}</span><span>{snapshotUpdated ? `${t.snapshot} ${formatDateTime(snapshotUpdated)}` : t.waitingUpdate}</span></div></div><div className="hero-metrics"><div><p className="metric-label">{t.last}</p><strong>{getCurrencySymbol(selectedStock.ticker)}{todayPrice.toFixed(2)}</strong></div><div><p className="metric-label">{t.change}</p><strong className={todayDeltaPercent >= 0 ? 'positive' : 'negative'}>{formatSigned(todayDelta)} / {formatSigned(todayDeltaPercent)}%</strong></div><div><p className="metric-label">{t.amplitude}</p><strong>{dayAmplitude.toFixed(2)}%</strong></div></div><p className="hero-summary">{snapshotState.error ? snapshotState.error : summary}</p></section>
           <section className="chart-card"><div className="section-header"><div><h3>{t.candlestick}</h3><p>{t.chartHint}</p></div><div className="chart-controls"><div className="period-switcher">{periodOptions.map((option) => <button key={option.key} type="button" className={activePeriod === option.key ? 'active' : ''} onClick={() => setActivePeriod(option.key)}>{option.key === '1d' ? periodDisplayLabel[language][option.key] : option.label}</button>)}</div>{activePeriod === '1d' && <div className="period-switcher">{intradayIntervalOptions.map((option) => <button key={option.key} type="button" className={intradayInterval === option.key ? 'active' : ''} onClick={() => setIntradayInterval(option.key)}>{option.label}</button>)}</div>}</div></div>{detailState.loading ? <div className="chart-state">{t.loadingChart}</div> : detailState.error ? <div className="chart-state chart-error">{detailState.error}</div> : <CandleChart data={history} ticker={selectedStock.ticker} market={selectedStock.market} period={activePeriod} interval={effectiveInterval} language={language} formatCompactNumber={formatCompactNumber} formatHoverTime={formatHoverTime} formatXAxisLabel={formatXAxisLabel} />}</section>
           <section className="info-grid">{infoCards.map((item) => <InfoCard key={item.title} title={item.title} value={item.value} hint={item.hint} />)}</section>
@@ -372,6 +794,72 @@ function App() {
 function InfoCard({ title, value, hint }: { title: string; value: string; hint: string }) {
   return <article className="info-card"><p>{title}</p><strong>{value}</strong><span>{hint}</span></article>;
 }
+
+function BreadthBar({
+  advancers,
+  decliners,
+  flat,
+  total,
+  labels,
+}: {
+  advancers: number;
+  decliners: number;
+  flat: number;
+  total: number;
+  labels: { advancers: string; decliners: string; flat: string };
+}) {
+  const safeTotal = Math.max(total, 1);
+  const advancerWidth = `${(advancers / safeTotal) * 100}%`;
+  const declinerWidth = `${(decliners / safeTotal) * 100}%`;
+  const flatWidth = `${(flat / safeTotal) * 100}%`;
+
+  return (
+    <div className="breadth-card">
+      <div className="breadth-bar">
+        <span className="breadth-up" style={{ width: advancerWidth }} />
+        <span className="breadth-flat" style={{ width: flatWidth }} />
+        <span className="breadth-down" style={{ width: declinerWidth }} />
+      </div>
+      <div className="breadth-legend">
+        <span><i className="legend-up" />{labels.advancers} {advancers}</span>
+        <span><i className="legend-flat" />{labels.flat} {flat}</span>
+        <span><i className="legend-down" />{labels.decliners} {decliners}</span>
+      </div>
+    </div>
+  );
+}
+
+function VolumePulseChart({
+  title,
+  rows,
+  formatCompactNumber,
+}: {
+  title: string;
+  rows: HotspotRow[];
+  formatCompactNumber: (value: number) => string;
+}) {
+  const maxVolume = Math.max(...rows.map((row) => row.volume), 1);
+
+  return (
+    <div className="pulse-card">
+      <p className="pulse-title">{title}</p>
+      <div className="pulse-list">
+        {rows.map((row) => (
+          <div key={row.ticker} className="pulse-row">
+            <div className="pulse-meta">
+              <strong>{row.ticker}</strong>
+              <span>{formatCompactNumber(row.volume)}</span>
+            </div>
+            <div className="pulse-track">
+              <span className="pulse-fill" style={{ width: `${(row.volume / maxVolume) * 100}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function CandleChart({ data, ticker, market, period, interval, language, formatCompactNumber, formatHoverTime, formatXAxisLabel }: { data: HistoryPoint[]; ticker: string; market: MarketType; period: PeriodKey; interval: string; language: Language; formatCompactNumber: (value: number) => string; formatHoverTime: (value: string, market: MarketType, period: PeriodKey) => string; formatXAxisLabel: (value: string, market: MarketType, period: PeriodKey) => string }) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; index: number } | null>(null);
