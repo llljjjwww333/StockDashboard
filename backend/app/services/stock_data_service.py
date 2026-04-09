@@ -4,18 +4,31 @@ import asyncio
 import json
 import os
 import random
+import re
 import time
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from collections import Counter
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import akshare as ak
 
-from app.schemas.stock import StockDataPoint, StockHistoryResponse, StockUpdate
+from app.schemas.stock import (
+    AiContextAnalysisRequest,
+    AiContextAnalysisResponse,
+    AiProviderSettings,
+    FinanceNewsAiRequest,
+    FinanceNewsAiResponse,
+    FinanceNewsItem,
+    FinanceNewsResponse,
+    StockDataPoint,
+    StockHistoryResponse,
+    StockUpdate,
+)
 
 
 @dataclass(frozen=True)
@@ -30,10 +43,12 @@ class PeriodSpec:
 PERIOD_SPECS: dict[str, PeriodSpec] = {
     "1d": PeriodSpec(2, "5m", 78, 5, "5d"),
     "1wk": PeriodSpec(10, "30m", 65, 30, "1mo"),
-    "1mo": PeriodSpec(45, "1d", 22, 24 * 60, "3mo"),
-    "3mo": PeriodSpec(120, "1d", 66, 24 * 60, "6mo"),
-    "1y": PeriodSpec(400, "1wk", 52, 7 * 24 * 60, "2y"),
+    "1mo": PeriodSpec(45, "1d", 30, 24 * 60, "3mo"),
+    "3mo": PeriodSpec(120, "1d", 90, 24 * 60, "6mo"),
+    "1y": PeriodSpec(400, "1d", 250, 24 * 60, "2y"),
 }
+
+CN_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 
 class StockDataService:
@@ -154,9 +169,11 @@ class StockDataService:
         self.quote_cache: dict[str, tuple[float, StockUpdate]] = {}
         self.history_cache: dict[str, tuple[float, StockHistoryResponse]] = {}
         self.market_hotspot_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+        self.news_cache: dict[str, tuple[float, FinanceNewsResponse]] = {}
         self.quote_cache_ttl_seconds = 12.0
         self.history_cache_ttl_seconds = 120.0
         self.market_hotspot_cache_ttl_seconds = 5 * 60.0
+        self.news_cache_ttl_seconds = 90.0
         self.market_hotspot_stale_ttl_seconds = 4 * 60 * 60.0
         self.polygon_reference_cache_ttl_seconds = 24 * 60 * 60.0
         self.cn_full_market_universe_cache_ttl_seconds = 24 * 60 * 60.0
@@ -174,6 +191,192 @@ class StockDataService:
                 "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0 Safari/537.36"
             )
         }
+        self.news_keyword_stopwords = {
+            "市场", "财经", "公司", "今日", "全球", "中国", "美国", "数据", "显示",
+            "表示", "相关", "今年", "行业", "概念", "板块", "经济", "消息", "集团",
+            "Finance", "Global", "Market", "Stocks", "Stock", "Today", "News",
+        }
+
+    def _normalize_openai_compatible_url(self, base_url: str) -> str:
+        normalized = base_url.strip().rstrip("/")
+        if normalized.endswith("/chat/completions"):
+            return normalized
+        if normalized.endswith("/v1"):
+            return f"{normalized}/chat/completions"
+        return f"{normalized}/v1/chat/completions"
+
+    def _request_openai_compatible_json(
+        self,
+        settings: AiProviderSettings,
+        language: str,
+        news_items: list[FinanceNewsItem],
+    ) -> dict[str, Any]:
+        endpoint = self._normalize_openai_compatible_url(settings.base_url)
+        normalized_language = language.lower()
+        wants_chinese = normalized_language.startswith("zh")
+        compact_news = [
+            {
+                "title": item.title,
+                "summary": item.summary,
+                "source": item.source,
+                "published_at": item.published_at,
+                "market": item.market,
+            }
+            for item in news_items[:12]
+        ]
+        request_payload = {
+            "model": settings.model,
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a financial news analyst. "
+                        "Return strict JSON with keys summary and keywords. "
+                        f"The output language must be {'Simplified Chinese' if wants_chinese else 'English'}. "
+                        "summary must be a concise 1-2 sentence market overview. "
+                        "keywords must be an array of 5 to 8 short keyword strings."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "task": (
+                                "分析今天的财经资讯并提取最重要的今日关键词。"
+                                if wants_chinese
+                                else "Analyze today's financial news and extract the most important daily keywords."
+                            ),
+                            "language": "zh-CN" if wants_chinese else "en-US",
+                            "news_items": compact_news,
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+        }
+        body = json.dumps(request_payload, ensure_ascii=False).encode("utf-8")
+        request = urllib.request.Request(
+            endpoint,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {settings.api_key}",
+                **self.http_headers,
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=max(self.source_timeout_seconds, 25.0)) as response:
+            payload = json.load(response)
+
+        choices = payload.get("choices") or []
+        if not choices:
+            raise ValueError("AI provider returned no choices")
+
+        content = str(
+            (choices[0].get("message") or {}).get("content")
+            or choices[0].get("text")
+            or ""
+        ).strip()
+        if not content:
+            raise ValueError("AI provider returned empty content")
+
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"AI provider returned non-JSON content: {content[:160]}") from exc
+
+    def _request_openai_compatible_context_json(
+        self,
+        settings: AiProviderSettings,
+        language: str,
+        context_type: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        endpoint = self._normalize_openai_compatible_url(settings.base_url)
+        normalized_language = language.lower()
+        wants_chinese = normalized_language.startswith("zh")
+
+        if context_type == "dashboard":
+            task = (
+                "你是一名专业股票分析师。请基于当前股票、当前打开时段的K线和快照数据，"
+                "给出审慎、专业的盘面分析。返回严格 JSON，包含 title、summary、sentiment、signals、risks。"
+                if wants_chinese
+                else "You are a professional equity analyst. Analyze the currently selected stock using the opened timeframe, candlestick context, and snapshot metrics. Return strict JSON with title, summary, sentiment, signals, and risks."
+            )
+        elif context_type == "hotspot":
+            task = (
+                "你是一名专业市场策略分析师。请基于热点页的市场宽度、指数、涨跌榜和活跃榜，"
+                "分析整体行情和市场情绪。返回严格 JSON，包含 title、summary、sentiment、signals、risks。"
+                if wants_chinese
+                else "You are a professional market strategist. Analyze the overall market regime and sentiment using hotspot breadth, indices, gainers, losers, and active lists. Return strict JSON with title, summary, sentiment, signals, and risks."
+            )
+        else:
+            raise ValueError("Unsupported context type")
+
+        request_payload = {
+            "model": settings.model,
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "Return strict JSON only. "
+                        f"The output language must be {'Simplified Chinese' if wants_chinese else 'English'}. "
+                        "title should be a short headline. "
+                        "summary should be 2 to 4 concise sentences. "
+                        "sentiment should be a short phrase. "
+                        "signals must be an array of 3 to 5 concise takeaways. "
+                        "risks must be an array of 2 to 4 concise caution points. "
+                        "Do not include markdown."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "task": task,
+                            "context_type": context_type,
+                            "language": "zh-CN" if wants_chinese else "en-US",
+                            "payload": payload,
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+        }
+        body = json.dumps(request_payload, ensure_ascii=False).encode("utf-8")
+        request = urllib.request.Request(
+            endpoint,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {settings.api_key}",
+                **self.http_headers,
+            },
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=max(self.source_timeout_seconds, 30.0)) as response:
+            response_payload = json.load(response)
+
+        choices = response_payload.get("choices") or []
+        if not choices:
+            raise ValueError("AI provider returned no choices")
+
+        content = str(
+            (choices[0].get("message") or {}).get("content")
+            or choices[0].get("text")
+            or ""
+        ).strip()
+        if not content:
+            raise ValueError("AI provider returned empty content")
+
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"AI provider returned non-JSON content: {content[:160]}") from exc
 
     def _normalize_metric_value(self, value: Any) -> float:
         if value is None:
@@ -281,7 +484,7 @@ class StockDataService:
             "1wk": {"15m", "30m", "1h"},
             "1mo": {"1d"},
             "3mo": {"1d"},
-            "1y": {"1wk"},
+            "1y": {"1d", "1wk"},
         }
         spec = self.get_period_spec(period)
         if interval in allowed_by_period.get(period, set()):
@@ -365,6 +568,188 @@ class StockDataService:
             path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
         except OSError:
             return
+
+    def _strip_tags(self, value: str) -> str:
+        return re.sub(r"<[^>]+>", "", value).replace("\u3000", " ").strip()
+
+    def _normalize_news_text(self, value: Any) -> str:
+        if value is None:
+            return ""
+        cleaned = self._strip_tags(str(value))
+        return re.sub(r"\s+", " ", cleaned)
+
+    def _build_sina_news_search_url(self, query: Any) -> str | None:
+        normalized_query = self._normalize_news_text(query)
+        if not normalized_query:
+            return None
+        return f"https://search.sina.com.cn/?c=news&q={urllib.parse.quote(normalized_query[:80])}"
+
+    def _parse_news_datetime(self, value: Any) -> datetime:
+        text = self._normalize_news_text(value)
+        if not text:
+            return datetime.now(CN_TIMEZONE)
+
+        normalized = text.replace("/", "-").replace("T", " ").strip()
+        for fmt in (
+            "%Y-%m-%d %H:%M:%S",
+            "%Y-%m-%d %H:%M",
+            "%Y-%m-%d",
+        ):
+            try:
+                parsed = datetime.strptime(normalized, fmt)
+                return parsed.replace(tzinfo=CN_TIMEZONE)
+            except ValueError:
+                continue
+
+        try:
+            parsed = datetime.fromisoformat(normalized)
+            return parsed.astimezone(CN_TIMEZONE) if parsed.tzinfo else parsed.replace(tzinfo=CN_TIMEZONE)
+        except ValueError:
+            return datetime.now(CN_TIMEZONE)
+
+    def _build_news_item(
+        self,
+        *,
+        title: Any,
+        summary: Any,
+        published_at: Any,
+        source: str,
+        market: str,
+        url: Any = None,
+    ) -> FinanceNewsItem | None:
+        normalized_title = self._normalize_news_text(title)
+        normalized_summary = self._normalize_news_text(summary)
+        normalized_url = self._normalize_news_text(url)
+        if not normalized_title:
+            return None
+
+        if not normalized_summary:
+            normalized_summary = normalized_title
+
+        return FinanceNewsItem(
+            title=normalized_title,
+            summary=normalized_summary[:220],
+            published_at=self._parse_news_datetime(published_at).isoformat(),
+            source=source,
+            url=normalized_url or None,
+            market=market,
+        )
+
+    def _fetch_cn_finance_news(self) -> list[FinanceNewsItem]:
+        items: list[FinanceNewsItem] = []
+
+        try:
+            cls_frame = ak.stock_info_global_cls()
+            for _, row in cls_frame.head(8).iterrows():
+                item = self._build_news_item(
+                    title=row.get("标题"),
+                    summary=row.get("内容"),
+                    published_at=f"{row.get('发布日期', '')} {row.get('发布时间', '')}".strip(),
+                    source="财联社",
+                    market="CN",
+                )
+                if item:
+                    items.append(item)
+        except Exception as exc:
+            print(f"Error fetching CLS finance news: {exc}")
+
+        try:
+            em_frame = ak.stock_info_global_em()
+            for _, row in em_frame.head(8).iterrows():
+                item = self._build_news_item(
+                    title=row.get("标题"),
+                    summary=row.get("摘要"),
+                    published_at=row.get("发布时间"),
+                    source="东方财富",
+                    market="CN",
+                    url=row.get("链接"),
+                )
+                if item:
+                    items.append(item)
+        except Exception as exc:
+            print(f"Error fetching Eastmoney finance news: {exc}")
+
+        seen: set[str] = set()
+        deduped: list[FinanceNewsItem] = []
+        for item in sorted(items, key=lambda news: news.published_at, reverse=True):
+            dedupe_key = f"{item.title}|{item.source}"
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            deduped.append(item)
+        return deduped
+
+    def _fetch_us_finance_news(self) -> list[FinanceNewsItem]:
+        items: list[FinanceNewsItem] = []
+
+        try:
+            sina_frame = ak.stock_info_global_sina()
+            for _, row in sina_frame.head(12).iterrows():
+                content = self._normalize_news_text(row.get("内容"))
+                sentence_parts = re.split(r"[。.!?]", content, maxsplit=1)
+                title = sentence_parts[0][:120] if sentence_parts else content[:120]
+                item = self._build_news_item(
+                    title=title,
+                    summary=content,
+                    published_at=row.get("时间"),
+                    source="新浪全球财经",
+                    market="US",
+                    url=self._build_sina_news_search_url(title or content),
+                )
+                if item:
+                    items.append(item)
+        except Exception as exc:
+            print(f"Error fetching Sina global finance news: {exc}")
+
+        try:
+            cls_frame = ak.stock_info_global_cls()
+            for _, row in cls_frame.head(6).iterrows():
+                title = self._normalize_news_text(row.get("标题"))
+                if any(keyword in title for keyword in ["美股", "纳指", "标普", "道指", "美元", "美联储", "美债"]):
+                    item = self._build_news_item(
+                        title=title,
+                        summary=row.get("内容"),
+                        published_at=f"{row.get('发布日期', '')} {row.get('发布时间', '')}".strip(),
+                        source="财联社",
+                        market="US",
+                    )
+                    if item:
+                        items.append(item)
+        except Exception as exc:
+            print(f"Error fetching supplemental US finance news: {exc}")
+
+        seen: set[str] = set()
+        deduped: list[FinanceNewsItem] = []
+        for item in sorted(items, key=lambda news: news.published_at, reverse=True):
+            dedupe_key = f"{item.title}|{item.source}"
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            deduped.append(item)
+        return deduped
+
+    def _extract_news_keywords(self, items: list[FinanceNewsItem], limit: int = 8) -> list[str]:
+        counter: Counter[str] = Counter()
+
+        for item in items:
+            title = self._normalize_news_text(item.title)
+
+            for token in re.findall(r"[\u4e00-\u9fff]{2,6}", title):
+                if token in self.news_keyword_stopwords:
+                    continue
+                counter[token] += 1
+
+            for token in re.findall(r"[A-Za-z][A-Za-z0-9&.-]{2,20}", title):
+                normalized = token.upper() if token.isupper() else token.title()
+                if normalized in self.news_keyword_stopwords:
+                    continue
+                counter[normalized] += 1
+
+        keywords = [
+            word for word, _ in counter.most_common(limit * 2)
+            if word not in self.news_keyword_stopwords
+        ]
+        return keywords[:limit]
 
     def _load_market_hotspot_cache(
         self, market: str, max_age_seconds: float
@@ -950,11 +1335,11 @@ class StockDataService:
         if period in {"1d", "1wk"}:
             return points[-spec.fallback_points :]
         if period == "1mo":
-            return points[-22:]
+            return points[-30:]
         if period == "3mo":
-            return points[-66:]
+            return points[-90:]
         if period == "1y":
-            return points[-52:]
+            return points[-250:]
         return points
 
     def _filter_points_to_latest_session(
@@ -1020,11 +1405,11 @@ class StockDataService:
         spec = self.get_period_spec(period)
         data = self._fetch_cn_daily_tencent(ticker, max(spec.fallback_points + 20, 80))
         if period == "1mo":
-            return data[-22:]
+            return data[-30:]
         if period == "3mo":
-            return data[-66:]
+            return data[-90:]
         if period == "1y":
-            return data[-52:]
+            return data[-250:]
         return data
 
     def _fetch_cn_intraday_history(self, ticker: str, period: str, interval: str) -> list[StockDataPoint]:
@@ -1208,6 +1593,192 @@ class StockDataService:
         self.base_prices[ticker] = update.price
         self.quote_cache[ticker] = (now, update)
         return update
+
+    async def get_finance_news(
+        self, market: str = "ALL", limit: int = 200
+    ) -> FinanceNewsResponse:
+        normalized_market = market.upper()
+        cache_key = f"{normalized_market}:{limit}"
+        now = time.time()
+        cached_news = self.news_cache.get(cache_key)
+        if cached_news and now - cached_news[0] < self.news_cache_ttl_seconds:
+            return cached_news[1]
+
+        try:
+            if normalized_market == "US":
+                items = await self._run_with_timeout(
+                    self._fetch_us_finance_news,
+                    timeout=max(self.source_timeout_seconds, 12.0),
+                )
+            elif normalized_market == "CN":
+                items = await self._run_with_timeout(
+                    self._fetch_cn_finance_news,
+                    timeout=max(self.source_timeout_seconds, 12.0),
+                )
+            else:
+                cn_items, us_items = await asyncio.gather(
+                    self._run_with_timeout(
+                        self._fetch_cn_finance_news,
+                        timeout=max(self.source_timeout_seconds, 12.0),
+                    ),
+                    self._run_with_timeout(
+                        self._fetch_us_finance_news,
+                        timeout=max(self.source_timeout_seconds, 12.0),
+                    ),
+                    return_exceptions=True,
+                )
+                items = []
+                if not isinstance(cn_items, Exception):
+                    items.extend(cn_items)
+                if not isinstance(us_items, Exception):
+                    items.extend(us_items)
+        except Exception as exc:
+            print(f"Error fetching {normalized_market} finance news: {exc}")
+            items = []
+
+        if not items and normalized_market == "US":
+            try:
+                items = await self._run_with_timeout(
+                    self._fetch_cn_finance_news,
+                    timeout=max(self.source_timeout_seconds, 12.0),
+                )
+            except Exception as exc:
+                print(f"Error falling back to CN finance news for US feed: {exc}")
+
+        shanghai_today = datetime.now(CN_TIMEZONE).date()
+        deduped_items: list[FinanceNewsItem] = []
+        seen_pairs: set[str] = set()
+        for item in sorted(items, key=lambda news: news.published_at, reverse=True):
+            dedupe_key = f"{item.title}|{item.source}"
+            if dedupe_key in seen_pairs:
+                continue
+            seen_pairs.add(dedupe_key)
+            deduped_items.append(item)
+
+        today_items = [
+            item
+            for item in deduped_items
+            if datetime.fromisoformat(item.published_at).astimezone(CN_TIMEZONE).date() == shanghai_today
+        ]
+        visible_items = today_items[:limit] if today_items else deduped_items[:limit]
+
+        keywords = self._extract_news_keywords(visible_items, limit=8)
+
+        response = FinanceNewsResponse(
+            market=normalized_market if normalized_market in {"CN", "US"} else "ALL",
+            updated_at=datetime.now(UTC).isoformat(),
+            keywords=keywords,
+            items=visible_items,
+        )
+        self.news_cache[cache_key] = (now, response)
+        return response
+
+    async def get_finance_news_ai_insights(
+        self, payload: FinanceNewsAiRequest
+    ) -> FinanceNewsAiResponse:
+        if not payload.settings.api_key.strip():
+            raise ValueError("API key is required")
+        if not payload.settings.base_url.strip():
+            raise ValueError("Base URL is required")
+        if not payload.settings.model.strip():
+            raise ValueError("Model is required")
+        if not payload.items:
+            raise ValueError("News items are required")
+
+        result = await self._run_with_timeout(
+            self._request_openai_compatible_json,
+            payload.settings,
+            payload.language,
+            payload.items,
+            timeout=max(self.source_timeout_seconds, 30.0),
+        )
+        raw_keywords = result.get("keywords") or []
+        summary = self._normalize_news_text(result.get("summary"))
+        keywords = [
+            self._normalize_news_text(keyword)
+            for keyword in raw_keywords
+            if self._normalize_news_text(keyword)
+        ][:8]
+
+        if not keywords:
+            keywords = self._extract_news_keywords(payload.items, limit=8)
+        if not summary:
+            summary = "AI identified the key market themes from today's financial news flow."
+
+        return FinanceNewsAiResponse(
+            provider=payload.settings.provider,
+            model=payload.settings.model,
+            language=payload.language,
+            analyzed_at=datetime.now(UTC).isoformat(),
+            summary=summary,
+            keywords=keywords,
+        )
+
+    async def get_ai_context_analysis(
+        self, payload: AiContextAnalysisRequest
+    ) -> AiContextAnalysisResponse:
+        if not payload.settings.api_key.strip():
+            raise ValueError("API key is required")
+        if not payload.settings.base_url.strip():
+            raise ValueError("Base URL is required")
+        if not payload.settings.model.strip():
+            raise ValueError("Model is required")
+        if payload.context_type not in {"dashboard", "hotspot"}:
+            raise ValueError("Unsupported context type")
+        if not payload.payload:
+            raise ValueError("Analysis payload is required")
+
+        result = await self._run_with_timeout(
+            self._request_openai_compatible_context_json,
+            payload.settings,
+            payload.language,
+            payload.context_type,
+            payload.payload,
+            timeout=max(self.source_timeout_seconds, 35.0),
+        )
+
+        wants_chinese = payload.language.lower().startswith("zh")
+        title = self._normalize_news_text(result.get("title"))
+        summary = self._normalize_news_text(result.get("summary"))
+        sentiment = self._normalize_news_text(result.get("sentiment"))
+        signals = [
+            self._normalize_news_text(item)
+            for item in (result.get("signals") or [])
+            if self._normalize_news_text(item)
+        ][:5]
+        risks = [
+            self._normalize_news_text(item)
+            for item in (result.get("risks") or [])
+            if self._normalize_news_text(item)
+        ][:4]
+
+        if not title:
+            title = "AI 盘面分析" if wants_chinese and payload.context_type == "dashboard" else (
+                "AI 市场情绪分析" if wants_chinese else (
+                    "AI Trading View" if payload.context_type == "dashboard" else "AI Market Sentiment"
+                )
+            )
+        if not summary:
+            summary = (
+                "AI 已结合当前盘面给出简要解读，建议结合成交量、波动率和风险承受能力综合判断。"
+                if wants_chinese
+                else "The AI generated a concise market interpretation. Pair it with volume, volatility, and your own risk tolerance before acting."
+            )
+        if not sentiment:
+            sentiment = "中性观察" if wants_chinese else "Neutral watch"
+
+        return AiContextAnalysisResponse(
+            provider=payload.settings.provider,
+            model=payload.settings.model,
+            language=payload.language,
+            context_type=payload.context_type,
+            analyzed_at=datetime.now(UTC).isoformat(),
+            title=title,
+            summary=summary,
+            sentiment=sentiment,
+            signals=signals,
+            risks=risks,
+        )
 
     async def get_recommendations(self, ticker: str) -> list[str]:
         industry = self.industry_map.get(ticker, "Technology")

@@ -1,12 +1,12 @@
-import { useStockStore } from '../store/stockStore';
+import { useStockQuoteStore, useStockStore } from '../store/stockStore';
 
 const getDefaultWebSocketBaseUrl = () => {
   if (typeof window === 'undefined') {
-    return 'ws://127.0.0.1:8000';
+    return 'ws://127.0.0.1:8001';
   }
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.hostname}:8000`;
+  return `${protocol}//${window.location.hostname}:8001`;
 };
 
 class StockWebSocketService {
@@ -54,7 +54,7 @@ class StockWebSocketService {
           const message = JSON.parse(event.data);
           if (message.type === 'update') {
             const { ticker, price, change_percent, volume } = message.data;
-            useStockStore.getState().updateStockQuote(ticker, {
+            useStockQuoteStore.getState().updateStockQuote(ticker, {
               price,
               changePercent: change_percent,
               volume,

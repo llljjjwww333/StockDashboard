@@ -18,6 +18,7 @@
   --positive: #3ad6a3;
   --negative: #ff6a6a;
   --shadow-soft: 0 28px 60px rgba(0, 0, 0, 0.28);
+  --shadow-glow: 0 24px 48px rgba(255, 161, 79, 0.12);
   color-scheme: dark;
   font-family: 'Plus Jakarta Sans', sans-serif;
   font-synthesis: none;

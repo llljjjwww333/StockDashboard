@@ -1,6 +1,14 @@
 from fastapi import APIRouter, HTTPException, Query
 from app.services.stock_data_service import StockDataService
-from app.schemas.stock import StockHistoryResponse, StockUpdate
+from app.schemas.stock import (
+    AiContextAnalysisRequest,
+    AiContextAnalysisResponse,
+    FinanceNewsAiRequest,
+    FinanceNewsAiResponse,
+    FinanceNewsResponse,
+    StockHistoryResponse,
+    StockUpdate,
+)
 
 router = APIRouter()
 stock_service = StockDataService()
@@ -49,3 +57,33 @@ async def get_market_hotspots(
         return await stock_service.get_market_hotspots(market)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching market hotspots: {str(e)}")
+
+
+@router.get("/news", response_model=FinanceNewsResponse)
+async def get_finance_news(
+    market: str = Query("ALL", description="Market type: ALL, US or CN"),
+    limit: int = Query(200, ge=20, le=500, description="Number of news items to return"),
+):
+    """Get real-time hot financial news."""
+    try:
+        return await stock_service.get_finance_news(market, limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching financial news: {str(e)}")
+
+
+@router.post("/news/ai-insights", response_model=FinanceNewsAiResponse)
+async def get_finance_news_ai_insights(payload: FinanceNewsAiRequest):
+    """Analyze financial news with a user-configured AI provider."""
+    try:
+        return await stock_service.get_finance_news_ai_insights(payload)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error analyzing financial news: {str(e)}")
+
+
+@router.post("/ai/context-insights", response_model=AiContextAnalysisResponse)
+async def get_ai_context_insights(payload: AiContextAnalysisRequest):
+    """Analyze dashboard or hotspot context with a user-configured AI provider."""
+    try:
+        return await stock_service.get_ai_context_analysis(payload)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error analyzing AI context: {str(e)}")

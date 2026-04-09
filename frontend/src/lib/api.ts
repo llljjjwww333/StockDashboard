@@ -1,10 +1,10 @@
 const getDefaultApiBaseUrl = () => {
   if (typeof window === 'undefined') {
-    return 'http://127.0.0.1:8000';
+    return 'http://127.0.0.1:8001';
   }
 
   const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-  return `${protocol}//${window.location.hostname}:8000`;
+  return `${protocol}//${window.location.hostname}:8001`;
 };
 
 const rawApiBaseUrl = import.meta.env.VITE_API_URL || getDefaultApiBaseUrl();
