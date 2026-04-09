@@ -124,6 +124,40 @@ npm run dev
 
 默认前端开发服务运行在 `http://localhost:5173`。
 
+## Deploy on Render
+
+仓库已经包含根目录 [render.yaml](/e:/Stock%20Dashboard/render.yaml)，可以直接用 Render Blueprint 部署。
+
+### 推荐部署方式
+
+- `stock-dashboard-api`：Render Web Service，运行 FastAPI 后端
+- `stock-dashboard-web`：Render Static Site，部署前端 Vite 构建产物
+
+### 部署步骤
+
+1. 将仓库推送到 GitHub。
+2. 登录 Render，点击 `New +` -> `Blueprint`。
+3. 选择你的 GitHub 仓库，Render 会自动识别 `render.yaml`。
+4. 创建服务后，在前端静态站点里填写环境变量：
+
+```env
+VITE_API_URL=https://你的-backend.onrender.com
+VITE_WS_URL=wss://你的-backend.onrender.com
+```
+
+5. 如需增强美股数据，再给后端服务补上：
+
+```env
+POLYGON_API_KEY=your_polygon_api_key_here
+```
+
+### Render 注意事项
+
+- 免费 Web Service 会在空闲后休眠，首次访问可能有冷启动等待。
+- 前端是静态站点，后端必须单独存在，不能只部署前端。
+- `VITE_API_URL` 不需要手动追加 `/api/v1`，前端代码会自动补齐。
+- `VITE_WS_URL` 要用 `wss://`，不要写成 `https://`。
+
 ## Environment Variables
 
 根目录 `.env.example` 当前包含：
