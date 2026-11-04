@@ -1,5 +1,5 @@
 # 基础镜像
-FROM node:18-alpine
+FROM node:24-alpine AS build
 
 # 工作目录
 WORKDIR /app
@@ -8,7 +8,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # 安装依赖
-RUN npm install
+RUN npm ci
 
 # 复制源代码
 COPY . .
@@ -16,11 +16,12 @@ COPY . .
 # 构建生产版本
 RUN npm run build
 
-# 安装 serve 来提供静态文件
-RUN npm install -g serve
+FROM nginx:alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # 暴露端口
 EXPOSE 5173
 
 # 启动命令
-CMD ["serve", "-s", "dist", "-l", "5173"]
+CMD ["nginx", "-g", "daemon off;"]

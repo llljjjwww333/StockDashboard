@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { Quote } from '../terminal/types';
+import { isOlderQuote } from '../lib/quotes';
 
 export type MarketType = 'US' | 'CN';
 
@@ -13,6 +15,11 @@ export interface StockQuote {
   price: number;
   changePercent: number;
   volume: number;
+  source?: string | null;
+  asOf?: string | null;
+  stale?: boolean;
+  fetchedAt?: string | null;
+  snapshot?: Quote;
 }
 
 interface StockStore {
@@ -25,31 +32,28 @@ interface StockStore {
 
 interface StockQuoteStore {
   quotes: Record<string, StockQuote>;
+  connectionStatus: 'connecting' | 'connected' | 'disconnected';
+  setConnectionStatus: (status: 'connecting' | 'connected' | 'disconnected') => void;
   seedQuote: (ticker: string, payload: StockQuote) => void;
   removeQuote: (ticker: string) => void;
   updateStockQuote: (ticker: string, payload: StockQuote) => void;
 }
 
-const defaultWatchlist: Array<WatchlistStock & StockQuote> = [
-  { ticker: 'AAPL', name: 'Apple Inc.', market: 'US', price: 180, changePercent: 0.5, volume: 10000000 },
-  { ticker: 'NVDA', name: 'NVIDIA Corporation', market: 'US', price: 910, changePercent: 1.6, volume: 42000000 },
-  { ticker: 'TSLA', name: 'Tesla Inc.', market: 'US', price: 250, changePercent: -0.8, volume: 31000000 },
-  { ticker: '600519', name: 'Kweichow Moutai', market: 'CN', price: 1700, changePercent: 0.9, volume: 3200000 },
-  { ticker: '300059', name: 'East Money', market: 'CN', price: 15, changePercent: 1.1, volume: 18500000 },
+const defaultWatchlist: WatchlistStock[] = [
+  { ticker: 'AAPL', name: 'Apple Inc.', market: 'US' },
+  { ticker: 'NVDA', name: 'NVIDIA Corporation', market: 'US' },
+  { ticker: 'TSLA', name: 'Tesla Inc.', market: 'US' },
+  { ticker: '600519', name: 'Kweichow Moutai', market: 'CN' },
+  { ticker: '300059', name: 'East Money', market: 'CN' },
 ];
 
-const defaultQuotes = Object.fromEntries(
-  defaultWatchlist.map(({ ticker, price, changePercent, volume }) => [
-    ticker,
-    { price, changePercent, volume },
-  ]),
-);
-
 export const useStockQuoteStore = create<StockQuoteStore>()((set) => ({
-  quotes: defaultQuotes,
+  quotes: {},
+  connectionStatus: 'connecting',
+  setConnectionStatus: (connectionStatus) => set({ connectionStatus }),
   seedQuote: (ticker, payload) =>
     set((state) => ({
-      quotes: state.quotes[ticker]
+      quotes: state.quotes[ticker] || payload.price <= 0
         ? state.quotes
         : {
             ...state.quotes,
@@ -69,11 +73,17 @@ export const useStockQuoteStore = create<StockQuoteStore>()((set) => ({
   updateStockQuote: (ticker, payload) =>
     set((state) => {
       const current = state.quotes[ticker];
+      if (isOlderQuote(payload, current)) return state;
       if (
         current &&
         current.price === payload.price &&
         current.changePercent === payload.changePercent &&
-        current.volume === payload.volume
+        current.volume === payload.volume &&
+        current.asOf === payload.asOf &&
+        current.source === payload.source &&
+        current.stale === payload.stale &&
+        current.fetchedAt === payload.fetchedAt &&
+        current.snapshot === payload.snapshot
       ) {
         return state;
       }

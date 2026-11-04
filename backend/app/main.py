@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from app.api.ws.stock_updates import router as ws_router
 from app.api.routes import router as api_router
 
@@ -8,6 +9,7 @@ app = FastAPI(
     description="Stock market dashboard API with real-time updates",
     version="1.0.0"
 )
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=4)
 
 # Configure CORS
 app.add_middleware(

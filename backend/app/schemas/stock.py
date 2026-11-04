@@ -8,13 +8,32 @@ class StockDataPoint(BaseModel):
     low: float
     close: float
     volume: int
+    average_price: float | None = None
 
 class StockHistoryResponse(BaseModel):
     ticker: str
     data: List[StockDataPoint]
+    source: str | None = None
+    as_of: str | None = None
+    fetched_at: str | None = None
+    stale: bool = False
+    interval: str | None = None
+    price_type: str = "ohlc"
+    adjustment: str | None = None
+    reference_price: float | None = None
+
+class BookLevel(BaseModel):
+    level: int
+    price: float
+    volume: int
+
+class OrderBook(BaseModel):
+    bids: List[BookLevel]
+    asks: List[BookLevel]
 
 class StockUpdate(BaseModel):
     ticker: str
+    name: str | None = None
     price: float
     volume: int
     change_percent: float
@@ -25,7 +44,17 @@ class StockUpdate(BaseModel):
     previous_close: float | None = None
     amount: float | None = None
     turnover_rate: float | None = None
+    volume_ratio: float | None = None
+    pe_ratio: float | None = None
+    pb_ratio: float | None = None
+    market_cap: float | None = None
     amplitude_percent: float | None = None
+    source: str | None = None
+    as_of: str | None = None
+    fetched_at: str | None = None
+    stale: bool = False
+    delay_note: str | None = None
+    order_book: OrderBook | None = None
 
 class WebSocketMessage(BaseModel):
     type: str  # 'subscribe' or 'update'
@@ -46,6 +75,7 @@ class FinanceNewsResponse(BaseModel):
     updated_at: str
     keywords: List[str]
     items: List[FinanceNewsItem]
+    stale: bool = False
 
 
 class AiProviderSettings(BaseModel):

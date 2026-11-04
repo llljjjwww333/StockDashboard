@@ -12,6 +12,9 @@ venv/
 env/
 ENV/
 .venv/
+.venv-research/
+.baseline-*.zip
+.local/
 
 # IDE
 .vscode/

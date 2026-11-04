@@ -1,0 +1,21 @@
+.professional-chart { position: relative; }
+.professional-canvas { width: 100%; min-width: 0; outline-offset: -2px; }
+.professional-canvas:focus-visible { outline: 1px solid var(--orange); }
+.professional-tools { min-height: 39px; border-bottom: 1px solid var(--line-soft); display: flex; align-items: center; gap: 12px; padding: 2px 2px 4px; }
+.professional-tools > div { display: flex; gap: 3px; }
+.professional-tools button { display: grid; place-items: center; width: 30px; height: 29px; border: 0; border-radius: 3px; background: transparent; color: var(--muted); cursor: pointer; }
+.professional-tools button:hover { background: var(--ink-hover); color: var(--text); }
+.professional-tools button[aria-pressed='true'] { color: var(--orange); background: var(--orange-soft); }
+.professional-tools button:disabled { opacity: .25; cursor: default; }
+.professional-tools select { padding: 4px 8px; height: 29px; width: auto; border: 1px solid var(--line-soft); border-radius: 3px; background: var(--ink); color: var(--muted); font: inherit; font-size: 11px; }
+.professional-tools > small { margin-left: auto; white-space: nowrap; color: var(--muted); font-size: 11px; }
+.professional-chart.is-drawing .professional-canvas { cursor: crosshair; }
+.professional-chart.is-expanded { position: fixed; inset: 10px; z-index: 70; overflow: auto; padding: 16px; border: 1px solid var(--line); border-radius: 6px; background: var(--ink); box-shadow: 0 0 0 20px #000a; }
+@media (max-width: 600px) {
+  .professional-tools { gap: 6px; }
+  .professional-tools > small { display: none; }
+  .professional-tools > div { flex: 1; gap: 1px; min-width: 0; justify-content: flex-end; }
+  .professional-tools button { width: clamp(30px, 10vw, 42px); min-height: 40px; }
+  .professional-tools select { min-height: 36px; padding-inline: 5px; }
+  .professional-chart.is-expanded { inset: 0; border: 0; border-radius: 0; padding: 10px 6px; }
+}

@@ -1,10 +1,9 @@
 const getDefaultApiBaseUrl = () => {
   if (typeof window === 'undefined') {
-    return 'http://127.0.0.1:8001';
+    return '';
   }
 
-  const protocol = window.location.protocol === 'https:' ? 'https:' : 'http:';
-  return `${protocol}//${window.location.hostname}:8001`;
+  return window.location.origin;
 };
 
 const rawApiBaseUrl = import.meta.env.VITE_API_URL || getDefaultApiBaseUrl();
@@ -20,6 +19,14 @@ const apiBaseUrl = ensureApiPrefix(rawApiBaseUrl);
 
 export const buildApiUrl = (path: string) =>
   `${apiBaseUrl}${path.startsWith('/') ? path : `/${path}`}`;
+
+export const getWebSocketUrl = () => {
+  const base = import.meta.env.VITE_WS_URL || rawApiBaseUrl;
+  const url = new URL(base || 'http://127.0.0.1');
+  url.protocol = url.protocol === 'https:' || url.protocol === 'wss:' ? 'wss:' : 'ws:';
+  url.pathname = `${url.pathname.replace(/\/(?:api\/v1|ws\/stock-updates)\/?$/, '').replace(/\/+$/, '')}/ws/stock-updates`;
+  return url.toString();
+};
 
 export const getCurrencySymbol = (ticker: string) =>
   ticker.length === 6 && !Number.isNaN(Number(ticker)) ? '\u00A5' : '$';
