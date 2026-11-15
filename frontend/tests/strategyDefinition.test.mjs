@@ -80,3 +80,9 @@ test('legacy incompatible comparisons remain recoverable as drafts but cannot ex
  assert.equal(executableStrategy(legacy),false);assert.throws(()=>strategyBacktestConfig(legacy,environment),/量比/);
  assert.throws(()=>generatedExecution({rules,stop_loss_pct:8,take_profit_pct:0},25),/量比/);
 });
+
+test('selecting a template preserves the strategy cap across form, description and execution',()=>{
+ const draft={...base(),maxSingle:20},selected=editStrategyExecution(draft,draft.instrument,{...strategyDefaults,positionPct:100},true);
+ assert.equal(selected.maxSingle,20);assert.equal(selected.execution.positionPct,20);assert.equal(executableStrategy(selected),true);
+ assert.match(selected.goal,/20%/);
+});

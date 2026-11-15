@@ -1,0 +1,15 @@
+{
+  "url": "http://127.0.0.1:5176",
+  "stickyActions": true,
+  "staleParametersSeparated": true,
+  "originalInputRestored": true,
+  "customRulesRunWithoutApiKey": true,
+  "noAiCallsForRules": true,
+  "allocationSuggestedFromStrategy": true,
+  "volatilityBindingUsesRules": true,
+  "largeLedgersPaginated": true,
+  "snapshotIncludesFloorAndCosts": true,
+  "smallCoinAndFeePrecision": true,
+  "positionCapEditsStaySynchronized": true,
+  "errors": []
+}

@@ -99,6 +99,18 @@ export function bindStockStrategy(p: Portfolio, binding: StockBinding): Portfoli
 export function strategyAllocationAvailable(p: Portfolio, ticker: string) {
   return Math.max(0, 100 - (p.bindings ?? []).filter(b => b.ticker !== ticker).reduce((sum, b) => sum + b.allocationPct, 0));
 }
+export function bindingExecutionMode(binding: Pick<StockBinding, 'mode' | 'config'>): StockBinding['mode'] {
+  return binding.config.plan || binding.config.allocation ? 'rules' : binding.mode;
+}
+export function strategyPositionLimit(binding: Pick<StockBinding, 'mode' | 'config' | 'mandate'>) {
+  const limits = bindingExecutionMode(binding) === 'rules'
+    ? [binding.config.positionPct ?? 100, binding.config.plan?.maxPositionPct ?? 100, ...(binding.mandate.execution ? [binding.mandate.maxSingle, binding.mandate.maxGross] : [])]
+    : [binding.mandate.maxSingle, binding.mandate.maxGross];
+  return limits.every(n => Number.isFinite(n) && n >= 0) ? Math.min(100, ...limits) : 0;
+}
+export function bindingPositionLimit(binding: Pick<StockBinding, 'mode' | 'config' | 'mandate' | 'allocationPct'>) {
+  return Math.max(0, Math.min(binding.allocationPct, strategyPositionLimit(binding)));
+}
 export function detachStockStrategy(p: Portfolio, ticker: string): Portfolio {
   return { ...p, bindings: (p.bindings ?? []).filter(b => b.ticker !== ticker) };
 }
@@ -109,19 +121,23 @@ export function executePortfolioOrder(input: Portfolio, ticker: string, side: 'b
   return { ...input, cash: done.cash, fees: input.fees + fill.fee, realized: input.realized + fill.realized, positions, orders: [...input.orders, { id: fill.id, ticker, side, quantity, time: now.toISOString(), status: 'filled', reason, fill }] };
 }
 export function applyStockTarget(input: Portfolio, binding: StockBinding, weight: number, quotes: Record<string, Quote>, reason: string, now = new Date()): Portfolio {
-  if (!Number.isFinite(weight) || weight < 0 || weight > binding.allocationPct) throw new Error('目标仓位超过该股资金比例');
+  if (!Number.isFinite(weight) || weight < 0 || weight > bindingPositionLimit(binding) + 1e-8) throw new Error('目标仓位超过策略执行上限');
   const quote = quotes[binding.ticker], issue = quoteExecutionIssue(binding.ticker, quote, now);
   if (issue) throw new Error(issue);
   const equity = portfolioEquity(input, quotes), holding = input.positions.find(h => h.ticker === binding.ticker), unit = input.market === 'CRYPTO' ? 1e-8 : input.market === 'CN' ? 100 : 1;
+  const currentWeight = (holding?.shares ?? 0) * quote.price / equity * 100, aboveLimit = currentWeight > bindingPositionLimit(binding) + 1e-8;
+  // Staged targets can encode an exact partial-exit quantity or validated initial lot.
   const desired = Math.floor(equity * weight / 100 / quote.price / unit + 1e-9) * unit;
-  const delta = binding.config.allocation ? rebalanceQuantity(input.cash, holding?.shares ?? 0, quote.price, weight,
-    binding.config.feeBps, binding.config.slippageBps, unit, equity) : desired - (holding?.shares ?? 0);
-  if (binding.config.allocation && Math.abs(weight - (holding?.shares ?? 0) * quote.price / equity * 100) <= binding.config.allocation.rebalanceThresholdPct) return input;
-  if (!delta || !binding.config.plan && !binding.config.allocation && holding && weight > 0 && Math.abs(delta) * quote.price < equity * .005) return input;
+  const delta = binding.config.plan ? desired - (holding?.shares ?? 0) : rebalanceQuantity(input.cash, holding?.shares ?? 0, quote.price, weight,
+    binding.config.feeBps, binding.config.slippageBps, unit, equity);
+  if (binding.config.allocation && weight > 0 && !aboveLimit && Math.abs(weight - currentWeight) <= binding.config.allocation.rebalanceThresholdPct) return input;
+  if (!delta || !binding.config.plan && !binding.config.allocation && holding && weight > 0 && !aboveLimit && Math.abs(delta) * quote.price < equity * .005) return input;
   const side = delta > 0 ? 'buy' : 'sell';
   let quantity = Math.abs(delta);
   const c = validateStrategyConfig(binding.config);
-  if (side === 'buy') quantity = Math.min(quantity, Math.floor(input.cash / (quote.price * (1 + c.slippageBps / 10000) * (1 + c.feeBps / 10000)) / unit) * unit);
+  if (side === 'buy') quantity = Math.min(quantity,
+    Math.max(0, rebalanceQuantity(input.cash, holding?.shares ?? 0, quote.price, bindingPositionLimit(binding), c.feeBps, c.slippageBps, unit, equity)),
+    Math.floor(input.cash / (quote.price * (1 + c.slippageBps / 10000) * (1 + c.feeBps / 10000)) / unit) * unit);
   else quantity = Math.min(quantity, portfolioSellable(input, binding.ticker, now));
   if (!quantity) throw new Error(side === 'buy' ? '可用资金不足' : '可卖持仓不足');
   const done = executePortfolioOrder(input, binding.ticker, side, quantity, quote, reason, binding.name, binding.config, now);

@@ -1,0 +1,16 @@
+{
+  "url": "http://127.0.0.1:5176",
+  "marketAndModelFixtures": true,
+  "legacyBudgetPreserved": true,
+  "previousDailyReviewRechecked": true,
+  "ruleTargetCappedAt20": true,
+  "postCostWeightWithinCap": true,
+  "explicitModeSelection": true,
+  "missingAiProfileBlocksOnlyAi": true,
+  "deploymentCapValidated": true,
+  "aiRequestLimit15": true,
+  "oversizedAiTargetRejected": true,
+  "aiModePreservedAfterReload": true,
+  "legacyVolatilityRunsAsRules": true,
+  "errors": []
+}

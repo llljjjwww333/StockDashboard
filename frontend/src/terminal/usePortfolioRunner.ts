@@ -4,7 +4,7 @@ import { useAiProfiles, providerSettings } from '../ai/profileStore';
 import { useLanguage } from '../lib/i18n';
 import { useStockStore } from '../store/stockStore';
 import { usePortfolioStore, loadPortfolios, updatePortfolio } from './portfolioStore';
-import { portfolioUniverse, portfolioEquity, portfolioSellable, positionAccount, applyStockTarget, type Portfolio, type PortfolioReview, type StockBinding } from './portfolio';
+import { bindingExecutionMode, bindingPositionLimit, portfolioUniverse, portfolioEquity, portfolioSellable, positionAccount, applyStockTarget, type Portfolio, type PortfolioReview, type StockBinding } from './portfolio';
 import { paperDecision, quoteExecutionIssue } from './paperTrading';
 import { parsePortfolioReview } from './portfolioReview';
 import { hasExecutedDailyRule, mergePortfolioReview } from './ruleExecution';
@@ -25,25 +25,25 @@ export function usePortfolioRunner() {
    if(!stopped)usePortfolioStore.setState(s=>({quotes:{...s.quotes,...rows}}));return rows;
   };
   const run=async(p:Portfolio,b:StockBinding)=>{
-   const key=p.id+':'+b.ticker;
+   const key=p.id+':'+b.ticker, mode=bindingExecutionMode(b), limit=bindingPositionLimit(b);
    if(b.config.allocation&&!allocationExecutionDue(new Date())){status(key,'等待00:00 UTC再平衡');return;}
    if(lastBinding.get(key)!==b){lastBinding.set(key,b);due.delete(key);}
    if(busy.has(key)||(due.get(key)??0)>Date.now())return;
    busy.add(key);const epoch=epochs.get(p.id)??0, holding=p.positions.find(h=>h.ticker===b.ticker);
-   due.set(key,Date.now()+(b.mode==='rules'?15000:b.mandate.reviewMinutes*60000));usePortfolioStore.setState(s=>({pending:[...s.pending,key]}));
+   due.set(key,Date.now()+(mode==='rules'?15000:b.mandate.reviewMinutes*60000));usePortfolioStore.setState(s=>({pending:[...s.pending,key]}));
    try{
     let result:PortfolioReview;let staged:ReturnType<typeof stagedPortfolioDecision>|undefined;
     const profile=useAiProfiles.getState().profiles.find(a=>a.id===(b.profileId||useAiProfiles.getState().activeId));
-    if(b.mode==='ai'&&!b.config.plan&&!b.config.allocation){
+    if(mode==='ai'){
      if(!profile)throw new Error('请选择 AI 接口');status(key,'研判中');
      const quotes=usePortfolioStore.getState().quotes;
      const ownValue=(holding?.shares??0)*(quotes[b.ticker]?.price??holding?.lastPrice??0);
-     const raw=await requestAiJson(buildApiUrl('/ai/portfolios/review'),{settings:providerSettings(profile),language:useLanguage.getState().language,market:p.market,goal:b.mandate.goal,universe:[b.ticker],holdings:holding?[{ticker:b.ticker,shares:holding.shares,cost:holding.cost,sellable:portfolioSellable(p,b.ticker,new Date())}]:[],cash:p.cash,other_equity:Math.max(0,portfolioEquity(p,quotes)-p.cash-ownValue),max_single_pct:b.allocationPct,max_gross_pct:b.allocationPct,max_positions:1,fee_bps:b.config.feeBps,slippage_bps:b.config.slippageBps,previous_summary:p.reviews.filter(r=>r.ticker===b.ticker).at(-1)?.decision.summary??'',include_news:b.mandate.news,strategy_rules:b.config.rules??null,strategy_revision:b.mandate.revision??null},controller.signal);
+     const raw=await requestAiJson(buildApiUrl('/ai/portfolios/review'),{settings:providerSettings(profile),language:useLanguage.getState().language,market:p.market,goal:b.mandate.goal,universe:[b.ticker],holdings:holding?[{ticker:b.ticker,shares:holding.shares,cost:holding.cost,sellable:portfolioSellable(p,b.ticker,new Date())}]:[],cash:p.cash,other_equity:Math.max(0,portfolioEquity(p,quotes)-p.cash-ownValue),max_single_pct:limit,max_gross_pct:limit,max_positions:1,fee_bps:b.config.feeBps,slippage_bps:b.config.slippageBps,previous_summary:p.reviews.filter(r=>r.ticker===b.ticker).at(-1)?.decision.summary??'',include_news:b.mandate.news,strategy_rules:b.config.rules??null,strategy_revision:b.mandate.revision??null},controller.signal);
      result=parsePortfolioReview(raw);
      if(useAiProfiles.getState().profiles.find(a=>a.id===profile.id)!==profile)return;
      if(result.decision.targets.some(t=>t.ticker!==b.ticker))throw new Error('策略返回了其他标的');
     }else{
-     const ruleKey=JSON.stringify([b.config,b.allocationPct,b.label]);
+     const ruleKey=JSON.stringify([b.config,b.allocationPct,b.label,limit]);
      if(hasExecutedDailyRule(p.reviews,b.ticker,ruleKey,new Date())){status(key,'等待下一交易日信号');return;}
      const history=await get<HistoryResponse>('/stocks/'+encodeURIComponent(b.ticker)+'/history?period=1y&interval=1d');
      if(history.interval!=='1d'||history.price_type==='snapshot')throw new Error('等待有效日线');
@@ -57,7 +57,7 @@ export function usePortfolioRunner() {
       if(b.config.plan.includeNews&&profile&&!priceExit){
        try{
         const quotes=usePortfolioStore.getState().quotes,own=(holding?.shares??0)*(quotes[b.ticker]?.price??holding?.lastPrice??0),equity=portfolioEquity(p,quotes),currentPct=own/equity*100;
-        const ai=parsePortfolioReview(await requestAiJson(buildApiUrl('/ai/portfolios/review'),{settings:providerSettings(profile),language:useLanguage.getState().language,market:p.market,goal:b.mandate.goal,universe:[b.ticker],holdings:holding?[{ticker:b.ticker,shares:holding.shares,cost:holding.cost,sellable:portfolioSellable(p,b.ticker,new Date())}]:[],cash:p.cash,other_equity:Math.max(0,equity-p.cash-own),max_single_pct:b.allocationPct,max_gross_pct:b.allocationPct,max_positions:1,fee_bps:b.config.feeBps,slippage_bps:b.config.slippageBps,include_news:true,strategy_revision:b.mandate.revision??null,rule_target_pct:staged.target},controller.signal));
+        const ai=parsePortfolioReview(await requestAiJson(buildApiUrl('/ai/portfolios/review'),{settings:providerSettings(profile),language:useLanguage.getState().language,market:p.market,goal:b.mandate.goal,universe:[b.ticker],holdings:holding?[{ticker:b.ticker,shares:holding.shares,cost:holding.cost,sellable:portfolioSellable(p,b.ticker,new Date())}]:[],cash:p.cash,other_equity:Math.max(0,equity-p.cash-own),max_single_pct:limit,max_gross_pct:limit,max_positions:1,fee_bps:b.config.feeBps,slippage_bps:b.config.slippageBps,include_news:true,strategy_revision:b.mandate.revision??null,rule_target_pct:staged.target},controller.signal));
         result.provider='分批规则+AI新闻复核';result.decision.summary=(result.decision.summary+'；AI新闻复核：'+ai.decision.summary).slice(0,800);
         const recommended=ai.decision.targets.find(t=>t.ticker===b.ticker)?.weight_pct??0;
         if(staged.decision&&staged.target>currentPct+.01&&recommended<=currentPct+.01){staged={...staged,decision:null,target:currentPct};result.decision.targets=[{ticker:b.ticker,weight_pct:currentPct,reason:'新闻风险复核暂停本次新增买入'}];result.decision.summary=(result.decision.summary+'；暂停本次新增买入').slice(0,800);}
@@ -66,7 +66,7 @@ export function usePortfolioRunner() {
       }else if(b.config.plan.includeNews){result.decision.summary=(result.decision.summary+(priceExit?'；退出信号已执行':'；资讯跟踪已启用')).slice(0,800);}
      }else{
      const decision=paperDecision(positionAccount({...p,config:b.config},b.ticker),history.data,new Date());
-     result={ruleKey,id:crypto.randomUUID(),reviewed_at:new Date().toISOString(),provider:'规则引擎',model:b.config.kind,decision:{regime:'日线信号',method:b.label,summary:decision.target?'持有或买入信号':'空仓或卖出信号',reconsider_when:'下一交易日信号',targets:[{ticker:b.ticker,weight_pct:b.config.allocation?Math.min(b.allocationPct,decision.targetPct):decision.target?b.allocationPct:0,reason:decision.reason}],evidence_ids:['H1']},evidence:[{id:'H1',title:b.ticker+' 日线',source:history.source??'行情',timestamp:decision.signal}]};
+     result={ruleKey,id:crypto.randomUUID(),reviewed_at:new Date().toISOString(),provider:'规则引擎',model:b.config.kind,decision:{regime:'日线信号',method:b.label,summary:decision.target?'持有或买入信号':'空仓或卖出信号',reconsider_when:'下一交易日信号',targets:[{ticker:b.ticker,weight_pct:Math.min(limit,decision.targetPct),reason:decision.reason}],evidence_ids:['H1']},evidence:[{id:'H1',title:b.ticker+' 日线',source:history.source??'行情',timestamp:decision.signal}]};
      }
     }
     const mayApply=()=>{

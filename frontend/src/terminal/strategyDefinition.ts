@@ -39,6 +39,7 @@ export function applyGeneratedStrategy(strategy: Mandate, instrument: WatchlistS
   return withExecution({ ...next, sourceGoal:strategy.goal, goalMode: 'generated', goal:execution.plan?strategy.goal:describeStrategyGoal(instrument.ticker, execution, language) }, execution);
 }
 export function editStrategyExecution(strategy: Mandate, instrument: WatchlistStock, config: StrategyConfig, bind = false, language: 'zh' | 'en' = 'zh'): Mandate {
+  config = { ...config, positionPct: strategy.maxSingle };
   const canDescribe = bind || strategy.goalMode === 'generated' && strategy.executionGoal === strategy.goal && strategy.executionTicker === instrument.ticker;
   let next: Mandate = { ...strategy, instrument, execution: config, summary: undefined,
     executionGoal: strategy.execution && !bind ? strategy.executionGoal : strategy.goal,
