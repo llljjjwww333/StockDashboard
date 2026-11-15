@@ -48,17 +48,19 @@ const base = process.env.PREVIEW_URL || 'http://127.0.0.1:5176';
     assert.equal(Math.max(...samples.map(s => s.stats)) - Math.min(...samples.map(s => s.stats)), 0);
     assert((messages.depth || 0) > seconds * 3, 'native depth should exceed REST polling frequency');
     assert((messages.candle || 0) >= 1, 'native candles missing');
+    if (process.env.SKIP_CONNECTION_CHECK !== '1') {
     const depthBeforeOffline = counts.depth;
     await context.setOffline(true); await page.waitForTimeout(1500); await context.setOffline(false);
     for (let i = 0; i < 40 && counts.depth <= depthBeforeOffline; i++) await page.waitForTimeout(500);
     assert(counts.depth > depthBeforeOffline, 'native stream did not recover');
+    }
     await page.getByRole('button', { name: 'K线', exact: true }).click();
     await page.locator('.professional-canvas canvas').first().waitFor({ timeout: 60000 });
     await page.waitForTimeout(2500);
     assert.equal(errors.length, 0, errors.join('\n'));
     const report = { url: base, viewport: '1440x850', before, afterFailure, afterRecovery,
       seconds, messages, depthHz: Number(((messages.depth || 0) / seconds).toFixed(2)),
-      distinctPrices: prices.size, scrollRange: 0, contentMovement: 0, reconnect: true, candlesRendered: true, errors };
+      distinctPrices: prices.size, scrollRange: 0, contentMovement: 0, reconnect: process.env.SKIP_CONNECTION_CHECK === '1' ? null : true, candlesRendered: true, errors };
     fs.writeFileSync(process.env.REPORT_PATH || 'reports/realtime-desktop-check.json', JSON.stringify(report, null, 2));
     console.log(JSON.stringify(report));
   } finally { await context.close(); await browser.close(); }

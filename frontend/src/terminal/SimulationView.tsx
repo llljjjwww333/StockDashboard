@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { WatchlistStock } from '../store/stockStore';
 import { t, getLocale, useLanguage } from '../lib/i18n';
 import { useAiProfiles } from '../ai/profileStore';
-import { usePortfolioStore, savePortfolios, updatePortfolio, togglePortfolio, parsePortfolios } from './portfolioStore';
+import { usePortfolioStore, renamePortfolio, removePortfolio, undoPortfolioRemoval, savePortfolios, updatePortfolio, togglePortfolio, parsePortfolios } from './portfolioStore';
 import { bindingExecutionMode, bindingPositionLimit, strategyPositionLimit, createPortfolio, defaultMandate, portfolioUniverse, portfolioEquity, portfolioSellable, bindStockStrategy, detachStockStrategy, strategyAllocationAvailable, type Portfolio, type StockBinding, type Mandate } from './portfolio';
 import { useMandates } from './mandateStore';
 import { useStrategyWorkspace } from './strategyWorkspace';
@@ -18,12 +18,13 @@ const pct=(n:number)=>(n*100).toFixed(2)+'%';
 export function SimulationView({stock,watchlist,onStrategy,onSettings}:{stock?:WatchlistStock|null;watchlist:WatchlistStock[];onStrategy:()=>void;onSettings:()=>void}){
  useLanguage();const state=usePortfolioStore(),mandates=useMandates();
  const [creating,setCreating]=useState(false),[tab,setTab]=useState<'positions'|'strategies'|'orders'|'decisions'|'pool'>('positions'),[message,setMessage]=useState(''),[binding,setBinding]=useState<StockBinding|null|undefined>(undefined),[deployAccount,setDeployAccount]=useState(''),[allocation,setAllocation]=useState<number|null>(null);
+ const [accountEditing,setAccountEditing]=useState<string|null>(null);
  const [ticket,setTicket]=useState<(ManualOrderSelection&{accountId:string;nonce:number})|null>(null);
  const [removed,setRemoved]=useState<{accountId:string;binding:StockBinding}|null>(null);
  const p=state.portfolios.find(p=>p.id===state.selected)??state.portfolios[0],running=!!p&&state.running.includes(p.id),bindings=p?.bindings??[];
  const universe=p?portfolioUniverse(p,watchlist):[],equity=p?portfolioEquity(p,state.quotes):0;
  const importInput=useRef<HTMLInputElement>(null),ledger=useRef<HTMLDivElement>(null);
- const modalOpen=!!mandates.deployment||!!p&&(creating||binding!==undefined);
+ const modalOpen=!!mandates.deployment||!!accountEditing||!!p&&(creating||binding!==undefined);
  const tradeHolding=(ticker:string,side:'buy'|'sell')=>{if(p)setTicket({accountId:p.id,ticker,side,nonce:Date.now()});};
  const reportError=(e:unknown)=>setMessage(e instanceof Error?e.message:'操作失败');
  const attach=(account:Portfolio,mandate:Mandate)=>{
@@ -67,16 +68,18 @@ export function SimulationView({stock,watchlist,onStrategy,onSettings}:{stock?:W
  };
  const importAccount=async(file:File)=>{try{
   if(file.size>8_000_000)throw new Error('文件过大');const raw:unknown=JSON.parse(await file.text()),imported=parsePortfolios(JSON.stringify(Array.isArray(raw)?raw:[raw])),current=usePortfolioStore.getState().portfolios,additions=imported.filter(n=>!current.some(p=>p.id===n.id));
-  if(!additions.length)throw new Error('账户已存在');if(current.length+additions.length>8)throw new Error('最多 8 个账户');if(savePortfolios([...current,...additions])){usePortfolioStore.setState({selected:additions[0].id});setMessage('已导入');}
+  if(imported.some(p=>p.market!=='CRYPTO'))throw new Error('请选择USDT现货模拟账户文件');
+  if(!additions.length)throw new Error('账户已存在');if(current.length+additions.length>8)throw new Error('最多 8 个账户');if(savePortfolios([...current,...additions])){usePortfolioStore.setState(s=>({selected:additions[0].id,...(s.removedAccount&&additions.some(a=>a.id===s.removedAccount!.portfolio.id)?{removedAccount:null}:{})}));setMessage('已导入');}
  }catch(e){reportError(e);}finally{if(importInput.current)importInput.current.value='';}};
  const targetMarket=mandates.deployment?.instrument?.market;
  const eligible=state.portfolios.filter(a=>!targetMarket||a.market===targetMarket),deployId=deployAccount||eligible[0]?.id||'new';
  const deploying=mandates.deployment,deployPortfolio=eligible.find(a=>a.id===deployId);
  const deployLimit=deploying?Math.min(strategyPositionLimit({mode:strategyExecutionMode(deploying)??'rules',mandate:deploying,config:deploying.execution??strategyDefaults}),deployPortfolio?strategyAllocationAvailable(deployPortfolio,deploying.instrument?.ticker??''):100):100;
- return <section className="portfolio-desk"><header className="desk-module-header"><h1>{t('模拟')}</h1><div className="portfolio-header-actions"><input ref={importInput} type="file" accept="application/json,.json" hidden onChange={e=>{const file=e.target.files?.[0];if(file)void importAccount(file);}}/><button disabled={!state.owner} onClick={()=>importInput.current?.click()}>导入账户</button>{p&&<select aria-label="资金账户" value={p.id} onChange={e=>{usePortfolioStore.setState({selected:e.target.value});setBinding(undefined);setMessage('');}}>{state.portfolios.map(a=><option key={a.id} value={a.id}>{a.name} · {a.market==='CRYPTO'?'USDT':a.market==='CN'?'CNY':'USD'}</option>)}</select>}<button disabled={!state.owner} onClick={()=>{setMessage('');setCreating(true);}}>新建账户</button></div></header>
+ return <section className="portfolio-desk"><header className="desk-module-header"><h1>{t('模拟')}</h1><div className="portfolio-header-actions"><input ref={importInput} type="file" accept="application/json,.json" hidden onChange={e=>{const file=e.target.files?.[0];if(file)void importAccount(file);}}/><button disabled={!state.owner} onClick={()=>importInput.current?.click()}>导入账户</button>{p&&<select aria-label="资金账户" value={p.id} onChange={e=>{usePortfolioStore.setState({selected:e.target.value});setBinding(undefined);setMessage('');}}>{state.portfolios.map(a=><option key={a.id} value={a.id}>{a.name} · {a.market==='CRYPTO'?'USDT':a.market==='CN'?'CNY':'USD'}</option>)}</select>}{p&&<button disabled={!state.owner||state.portfolios.length>=8} onClick={()=>{setMessage('');setCreating(true);}}>新建账户</button>}</div></header>
  {!modalOpen&&(message||state.error)&&<p className="strategy-error" role="alert">{message||state.error}</p>}
+ {state.removedAccount&&<div className="portfolio-undo" role="status"><span>已删除账户 {state.removedAccount.portfolio.name}</span><button disabled={!state.owner} onClick={()=>{if(undoPortfolioRemoval()){setMessage('已恢复账户，策略已暂停');setTab('positions');}}}>撤销删除账户</button></div>}
  {!p&&!mandates.deployment?<div className="portfolio-onboarding"><div><h2>新建账户</h2><AccountForm onCreate={create} defaultMarket={stock?.market??watchlist[0]?.market??'CRYPTO'} disabled={!state.owner}/></div></div>:p?<>
- <div className="portfolio-account-bar"><div><span className={'portfolio-live-dot'+(running?' active':'')}/><strong>{p.name}</strong><span>{p.market==='CRYPTO'?'USDT · 虚拟币现货':p.market==='CN'?'人民币 · A股':'美元 · 美股'}</span>{!state.owner&&<span>其他页面运行中</span>}</div><div><button onClick={()=>downloadFile(JSON.stringify(p,null,2),p.name+'-account.json','application/json')}>导出账户</button><button className={running?'':'primary'} disabled={!state.owner} onClick={startAll}>{running?'暂停全部':'启动全部'}</button></div></div>
+ <div className="portfolio-account-bar"><div><span className={'portfolio-live-dot'+(running?' active':'')}/><strong>{p.name}</strong><span>{p.market==='CRYPTO'?'USDT · 虚拟币现货':p.market==='CN'?'人民币 · A股':'美元 · 美股'}</span>{!state.owner&&<span>其他页面运行中</span>}</div><div><button disabled={!state.owner} onClick={()=>{setMessage('');setAccountEditing(p.id);}}>管理账户</button><button onClick={()=>downloadFile(JSON.stringify(p,null,2),p.name+'-account.json','application/json')}>导出账户</button><button className={running?'':'primary'} disabled={!state.owner} onClick={startAll}>{running?'暂停全部':'启动全部'}</button></div></div>
  <div className="portfolio-summary">{[['总资产',money(equity)],['累计收益',pct(equity/p.capital-1)],['可用资金',money(p.cash)],['持仓市值',money(equity-p.cash)],['已实现盈亏',money(p.realized)],['资金使用率',pct(equity?(equity-p.cash)/equity:0)]].map(([label,value])=><div key={label}><small>{label}</small><strong>{value}</strong></div>)}</div>
  <div className="portfolio-main-grid"><div className="portfolio-chart-panel"><div className="portfolio-panel-header"><h2>账户净值</h2><span>初始资金 {p.market==='CRYPTO'?'USDT ':p.market==='CN'?'¥':'$'}{money(p.capital)}</span></div><PortfolioChart portfolio={p}/><div className="portfolio-chart-footer"><span>{p.positions.length} 个持仓</span><span>手续费 {money(p.fees)}</span><span>{p.orders.filter(o=>o.status==='filled').length} 笔成交</span></div></div><ManualTicket key={p.id+':'+(ticket?.accountId===p.id?ticket.nonce:0)} portfolio={p} watchlist={watchlist} disabled={!state.owner} initialOrder={ticket?.accountId===p.id?ticket:undefined} onOrders={()=>{setTab('orders');requestAnimationFrame(()=>ledger.current?.scrollIntoView({block:'start',behavior:'smooth'}));}}/></div>
  <div className="portfolio-runtime-strip"><span>{running?'运行中':'已暂停'}</span><span>行情 15 秒</span><span>策略额度 {money(bindings.reduce((sum,b)=>sum+b.allocationPct,0))}% / 100%</span><button disabled={!state.owner} onClick={()=>{setMessage('');setTab('strategies');setBinding(null);}}>添加币种策略</button></div>
@@ -87,6 +90,7 @@ export function SimulationView({stock,watchlist,onStrategy,onSettings}:{stock?:W
  </>:null}
  {creating&&p&&!mandates.deployment&&<Modal message={message||state.error} title="新建账户" onClose={()=>setCreating(false)}><AccountForm onCreate={create} defaultMarket={p.market} disabled={!state.owner}/></Modal>}
  {mandates.deployment&&<Modal message={message||state.error} title={mandates.deployment.name} label="部署策略" onClose={()=>useMandates.setState({deployment:null,deploymentProfileId:undefined})}><label className="deployment-account">账户<select aria-label="部署账户" value={deployId} onChange={e=>{setDeployAccount(e.target.value);setAllocation(null);}}>{eligible.map(a=><option key={a.id} value={a.id}>{a.name} · {a.market==='CRYPTO'?'USDT':a.market==='CN'?'CNY':'USD'}</option>)}<option value="new">新建账户</option></select></label><label className="deployment-account">资金比例（账户净资产 %）<small>当前最多可分配 {money(deployLimit)}%</small><input aria-label="部署资金比例" type="number" min={1} max={deployLimit} value={allocation===null?Math.min(mandates.deployment.maxSingle,deployLimit):Number.isFinite(allocation)?allocation:''} onChange={e=>setAllocation(e.target.valueAsNumber)}/></label>{deployId==='new'?<AccountForm onCreate={create} defaultMarket={targetMarket??stock?.market??'CRYPTO'} disabled={!state.owner} submitLabel="创建并部署"/>:<button className="primary deployment-confirm" disabled={!state.owner} onClick={()=>{try{const target=eligible.find(a=>a.id===deployId);if(!target||!mandates.deployment)return;if(updatePortfolio(attach(target,mandates.deployment))){usePortfolioStore.setState({selected:target.id});useMandates.setState({deployment:null,deploymentProfileId:undefined});setDeployAccount('');setAllocation(null);setTab('strategies');setMessage('已绑定');}}catch(e){reportError(e);}}}>部署</button>}</Modal>}
+ {accountEditing&&state.portfolios.some(a=>a.id===accountEditing)&&<AccountManager key={accountEditing} portfolio={state.portfolios.find(a=>a.id===accountEditing)!} disabled={!state.owner} error={state.error} onClose={()=>setAccountEditing(null)} onSaved={()=>{setAccountEditing(null);setMessage('账户名称已保存');}} onRemoved={()=>{setAccountEditing(null);setBinding(undefined);setTicket(null);setTab('positions');setMessage('');}}/>}
  {p&&binding!==undefined&&<BindingDialog portfolio={p} watchlist={watchlist} binding={binding} onSettings={onSettings} onClose={()=>setBinding(undefined)} onSaved={()=>{setBinding(undefined);setTab('strategies');}}/>}
  </section>;
 }
@@ -107,6 +111,21 @@ function Modal({title,label,message,onClose,children}:{title:string;label?:strin
 function AccountForm({onCreate,disabled,defaultMarket,submitLabel='创建账户'}:{onCreate:(name:string,capital:number,market:'CN'|'US'|'CRYPTO')=>void;disabled:boolean;defaultMarket:'CN'|'US'|'CRYPTO';submitLabel?:string}){
  const [name,setName]=useState('模拟账户'),[capital,setCapital]=useState(100000),[market,setMarket]=useState(defaultMarket);
  return <form className="portfolio-account-form" onSubmit={e=>{e.preventDefault();onCreate(name,capital,market);}}><label>账户名称<input aria-label="账户名称" required maxLength={80} value={name} onChange={e=>setName(e.target.value)}/></label><label>初始资金<input aria-label="账户初始资金" type="number" required min={100} max={1e9} value={Number.isFinite(capital)?capital:''} onChange={e=>setCapital(e.target.valueAsNumber)}/></label><label>市场<select aria-label="账户市场与币种" value={market} onChange={e=>setMarket(e.target.value as 'CN'|'US'|'CRYPTO')}><option value="CRYPTO">虚拟币现货 · USDT</option></select></label><button className="primary" type="submit" disabled={disabled}>{submitLabel}</button></form>;
+}
+function AccountManager({portfolio,disabled,error,onClose,onSaved,onRemoved}:{portfolio:Portfolio;disabled:boolean;error:string;onClose:()=>void;onSaved:()=>void;onRemoved:()=>void}){
+ const [name,setName]=useState(portfolio.name),[confirming,setConfirming]=useState(false);
+ return <Modal title="管理账户" onClose={onClose}>
+  <form className="portfolio-account-form" onSubmit={e=>{e.preventDefault();if(renamePortfolio(portfolio.id,name))onSaved();}}>
+   <label>账户名称<input aria-label="修改账户名称" required maxLength={80} value={name} disabled={disabled} onChange={e=>setName(e.target.value)}/></label>
+   <div className="account-management-facts"><span>初始资金 <b>{money(portfolio.capital)} USDT</b></span><span>{portfolio.positions.length} 个持仓 · {portfolio.orders.filter(o=>o.status==='filled').length} 笔成交 · {portfolio.bindings?.length??0} 个策略</span></div>
+   {error&&<p className="strategy-error" role="alert">{error}</p>}
+   <button className="primary" type="submit" disabled={disabled}>保存账户名称</button>
+  </form>
+  <div className="account-removal">
+   {confirming?<><p>删除“{portfolio.name}”及其模拟记录？</p><div><button type="button" disabled={disabled} onClick={()=>{if(removePortfolio(portfolio.id))onRemoved();}}>确认删除账户</button><button type="button" onClick={()=>setConfirming(false)}>取消删除</button></div></>
+    :<button type="button" disabled={disabled} onClick={()=>setConfirming(true)}>删除账户</button>}
+  </div>
+ </Modal>;
 }
 function BindingDialog({portfolio:p,watchlist,binding:b,onClose,onSaved,onSettings}:{portfolio:Portfolio;watchlist:WatchlistStock[];binding:StockBinding|null;onClose:()=>void;onSaved:()=>void;onSettings:()=>void}){
  const mandates=useMandates(),research=useStrategyWorkspace(),{profiles,activeId}=useAiProfiles();

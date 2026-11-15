@@ -346,3 +346,10 @@
 .binding-execution-mode { padding: 12px; background: var(--orange-soft); border-radius: 4px; }
 .binding-execution-mode strong { font-size: 13px; }.binding-execution-mode p { margin: 6px 0 0; color: var(--muted); line-height: 1.6; }
 @media (min-width: 1000px) { .workbench-library { position: sticky; top: 88px; align-self: start; max-height: calc(100dvh - 110px); overflow-y: auto; } }
+
+.account-management-facts { display: grid; gap: 8px; color: var(--muted); font-size: 12px; }
+.account-management-facts b { color: var(--paper); font-weight: 500; }
+.account-removal { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.account-removal p { margin: 0 0 12px; font-size: 13px; }
+.account-removal > div { display: flex; gap: 8px; }
+.account-removal button:first-child { color: var(--red); }

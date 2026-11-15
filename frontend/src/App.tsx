@@ -1,4 +1,5 @@
 import { getLocale, t, useLanguage } from './lib/i18n';
+import { formatTradingPrice } from './lib/tradingNumber';
 import { formatVolume } from './lib/volumePresentation';
 import { type CSSProperties, type PointerEvent, type ReactNode, memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import './App.css';
@@ -317,6 +318,8 @@ function App() {
       returnToMarket.current = null;
       const anchor = origin ? document.getElementById(origin.anchorId) : null;
       if (anchor && origin) {
+        const rankingPane = anchor.closest<HTMLElement>('.market-active-ranking');
+        if (rankingPane && typeof origin.rankingScroll === 'number' && Number.isFinite(origin.rankingScroll)) rankingPane.scrollTop = origin.rankingScroll;
         anchor.focus({ preventScroll: true });
         window.scrollBy(0, anchor.getBoundingClientRect().top - origin.top);
       } else if (origin?.fromBoard) document.getElementById('cn-board-focus')?.scrollIntoView({ block: 'start' });
@@ -466,7 +469,7 @@ function App() {
 
   const selectMarketRow = (row: ChinaBoardMember, anchor: HTMLButtonElement, fromBoard = false) => {
     const origin = view === 'markets' ? {
-      ticker: row.ticker, market, anchorId: anchor.id, top: anchor.getBoundingClientRect().top, scroll: window.scrollY, fromBoard,
+      ticker: row.ticker, market, anchorId: anchor.id, top: anchor.getBoundingClientRect().top, scroll: window.scrollY, fromBoard, rankingScroll: anchor.closest<HTMLElement>('.market-active-ranking')?.scrollTop,
     } : null;
     openInstrument({ ticker: row.ticker, name: row.name, market }, row.price !== null && row.change_percent !== null && row.volume !== null ? {
       price: row.price, changePercent: row.change_percent, volume: row.volume,
@@ -623,7 +626,6 @@ function App() {
           {view === 'markets' && (
             <Markets
               market={market}
-              setMarket={changeMarket}
               data={liveMarketData}
               loading={marketState.loading}
               error={marketState.error}
@@ -1159,21 +1161,22 @@ function MarketSnapshot({ data, loading, onOpen }: { data: ReturnType<typeof use
   );
 }
 
-function MoverRows({ rows, onSelect, group }: {
-  rows: HotspotRow[]; onSelect: (row: HotspotRow, anchor: HTMLButtonElement) => void; group?: string;
+const cryptoAmount = (value: number | null | undefined) => `${value != null && Number.isFinite(value) ? formatCompact(value) : '—'} USDT`;
+
+function MoverRows({ rows, onSelect, group, showAmount = false }: {
+  rows: HotspotRow[]; onSelect: (row: HotspotRow, anchor: HTMLButtonElement) => void; group?: string; showAmount?: boolean;
 }) {
   return <div className="mover-rows">{rows.map((row) => (
     <button key={row.ticker} id={group ? `market-${group}-${row.ticker}` : undefined} data-market-ticker={row.ticker}
       onClick={event => onSelect(row, event.currentTarget)}>
       <span><strong>{row.ticker}</strong><small>{row.name}</small><StockTags ticker={row.ticker} name={row.name} /></span>
-      <span><strong>{row.price.toFixed(pricePrecision(row.ticker, row.price))}</strong><Delta value={row.change_percent} /></span>
+      <span><strong>{formatTradingPrice(row.ticker, row.price, getLocale())}</strong><Delta value={row.change_percent} />{showAmount&&<small className="market-row-amount">{cryptoAmount(row.amount)}</small>}</span>
     </button>
   ))}</div>;
 }
 
-function Markets({ market, setMarket, data, loading, error, onRetry, onSelect, boardView, onBoardViewChange, prefetch, cancelPrefetch }: {
+function Markets({ market, data, loading, error, onRetry, onSelect, boardView, onBoardViewChange, prefetch, cancelPrefetch }: {
   market: MarketType;
-  setMarket: (market: MarketType) => void;
   data: ReturnType<typeof useMarketOverview>['data'];
   loading: boolean;
   error: string | null;
@@ -1184,6 +1187,12 @@ function Markets({ market, setMarket, data, loading, error, onRetry, onSelect, b
   prefetch: (ticker: string) => void;
   cancelPrefetch: () => void;
 }) {
+  const [ranking, setRanking] = useState<'change' | 'amount'>(() => {
+    try { return localStorage.getItem('marketdesk:crypto:market-ranking:v1') === 'amount' ? 'amount' : 'change'; } catch { return 'change'; }
+  });
+  const chooseRanking = (value: 'change' | 'amount') => {
+    setRanking(value); try { localStorage.setItem('marketdesk:crypto:market-ranking:v1', value); } catch { /* Keep this selection for the current page. */ }
+  };
   const movedBetweenRows = (event: PointerEvent<HTMLDivElement>) => {
     if (event.pointerType !== 'mouse' || !(event.target instanceof Element)) return;
     const row = event.target.closest<HTMLElement>('[data-market-ticker]');
@@ -1197,7 +1206,7 @@ function Markets({ market, setMarket, data, loading, error, onRetry, onSelect, b
     },
     onPointerOut: (event: PointerEvent<HTMLDivElement>) => { if (movedBetweenRows(event)) cancelPrefetch(); },
   };
-  const marketTabs = <div className="page-tabs"><button type="button" className="active" onClick={() => setMarket('CRYPTO')}>USDT现货 · 24小时</button></div>;
+  const marketTabs = <div className="page-tabs"><span className="market-context-label">USDT现货 · 24小时</span></div>;
   if (market === 'CN') return <div className="markets-page" aria-busy={loading && !data} {...hover}>
     <PageHeader title={t("A 股市场")} />
     <ResourceError error={error} loading={loading} onRetry={onRetry} label="重试市场" hasData={Boolean(data)} />
@@ -1215,7 +1224,7 @@ function Markets({ market, setMarket, data, loading, error, onRetry, onSelect, b
       {data && <div className="market-meta"><span>{data.market === 'CRYPTO' ? 'Binance USDT现货' : data.summary.mode === 'full_market' ? t("全市场") : t("样本")}</span><time>{formatClock(data.updated_at)}</time>{data.stale && <span>{t("缓存")}</span>}</div>}
       <section className="index-row">
         {(data?.indices ?? []).slice(0, 5).map((row) => <button key={row.ticker} id={`market-index-${row.ticker}`} data-market-ticker={row.ticker}
-          onClick={event => onSelect(row, event.currentTarget)}><span>{row.name}</span><strong>{row.price.toFixed(2)}</strong><Delta value={row.change_percent} /><small>{row.ticker}</small></button>)}
+          onClick={event => onSelect(row, event.currentTarget)}><span>{row.name}</span><strong>{market==='CRYPTO'?formatTradingPrice(row.ticker,row.price,getLocale()):row.price.toFixed(2)}</strong><Delta value={row.change_percent} /><small>{row.ticker}</small></button>)}
       </section>
       <div className="market-grid">
         <section className="heatmap surface">
@@ -1223,15 +1232,16 @@ function Markets({ market, setMarket, data, loading, error, onRetry, onSelect, b
           <div className="heatmap-grid">
             {heatRows.slice(0, 16).map((row, index) => (
               <button key={`${row.ticker}-${index}`} id={`market-heat-${row.ticker}`} data-market-ticker={row.ticker} data-direction={changeDirection(row.change_percent)} style={{ ['--heat' as string]: Math.max(Math.abs(row.change_percent) / maxChange, .12) } as CSSProperties} onClick={event => onSelect(row, event.currentTarget)}>
-                <span>{row.sector ?? row.name}</span><small>{row.ticker}</small><Delta value={row.change_percent} /><em>{formatVolume(row.volume, data?.market ?? 'US', getLocale())}</em>
+                <span>{row.sector ?? row.name}</span><small>{row.ticker}</small><Delta value={row.change_percent} /><em title={data?.market==='CRYPTO'?'24h成交额':'成交量'}>{data?.market==='CRYPTO'?cryptoAmount(row.amount):formatVolume(row.volume, data?.market ?? 'US', getLocale())}</em>
               </button>
             ))}
             {loading && !heatRows.length && <LoadingBlock label={t("加载中")} />}
           </div>
         </section>
         <section className="ranking surface">
-          <header className="section-header"><div><h2>{t("排行")}</h2></div></header>
-          <div className="ranking-columns"><div><h3>{t("领涨")}</h3><MoverRows group="leaders" rows={data?.leaders.slice(0, 8) ?? []} onSelect={onSelect} /></div><div><h3>{t("领跌")}</h3><MoverRows group="laggards" rows={data?.laggards.slice(0, 8) ?? []} onSelect={onSelect} /></div></div>
+          <header className="section-header"><div><h2>{t("排行")}</h2></div><nav className="market-rank-tabs" aria-label="市场排行"><button type="button" aria-pressed={ranking==='change'} onClick={()=>chooseRanking('change')}>涨跌幅</button><button type="button" aria-pressed={ranking==='amount'} onClick={()=>chooseRanking('amount')}>成交额</button></nav></header>
+          {ranking==='amount'?<div className="market-active-ranking" aria-label="24小时成交额排行"><p>{data?`${data.active.length} 个交易对 · 24h成交额`:loading?'加载排行…':'暂无排行数据'}</p><MoverRows group="active" rows={data?.active??[]} onSelect={onSelect} showAmount/></div>
+            :<div className="ranking-columns"><div><h3>{t("领涨")}</h3><MoverRows group="leaders" rows={data?.leaders.slice(0, 8) ?? []} onSelect={onSelect} /></div><div><h3>{t("领跌")}</h3><MoverRows group="laggards" rows={data?.laggards.slice(0, 8) ?? []} onSelect={onSelect} /></div></div>}
         </section>
       </div>
     </div>

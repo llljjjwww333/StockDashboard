@@ -31,10 +31,11 @@ export function loadPortfolios(): { portfolios: Portfolio[]; error: string } {
   try { const raw = localStorage.getItem(key); return { portfolios: raw ? parsePortfolios(raw) : restorePaperAccounts().accounts.map(migratePaperAccount), error: '' }; }
   catch { return { portfolios: [], error: '账户读取失败，请先导出浏览器中的账户备份。' }; }
 }
-type State = { portfolios: Portfolio[]; selected: string; running: string[]; owner: boolean; quotes: Record<string, Quote>; status: Record<string, string>; pending: string[]; error: string };
+type RemovedAccount = { portfolio: Portfolio; index: number };
+type State = { removedAccount: RemovedAccount | null; portfolios: Portfolio[]; selected: string; running: string[]; owner: boolean; quotes: Record<string, Quote>; status: Record<string, string>; pending: string[]; error: string };
 export const usePortfolioStore = create<State>(() => {
  const loaded=loadPortfolios();let selected='';try{selected=localStorage.getItem(selectedKey)??'';}catch{/* The first account remains usable. */}
- return {...loaded,selected:loaded.portfolios.some(p=>p.id===selected)?selected:loaded.portfolios[0]?.id??'',running:[],owner:false,quotes:{},status:{},pending:[],error:loaded.error};
+ return {...loaded,removedAccount:null,selected:loaded.portfolios.some(p=>p.id===selected)?selected:loaded.portfolios[0]?.id??'',running:[],owner:false,quotes:{},status:{},pending:[],error:loaded.error};
 });
 usePortfolioStore.subscribe((state,previous)=>{if(state.selected!==previous.selected)try{localStorage.setItem(selectedKey,state.selected);}catch{/* Account contents are saved separately. */}});
 export function savePortfolios(portfolios: Portfolio[]) {
@@ -44,4 +45,37 @@ export function savePortfolios(portfolios: Portfolio[]) {
 export function updatePortfolio(next: Portfolio) { return savePortfolios(usePortfolioStore.getState().portfolios.map(p => p.id === next.id ? next : p)); }
 export function togglePortfolio(id: string) {
   usePortfolioStore.setState(s => ({ running: s.running.includes(id) ? s.running.filter(n => n !== id) : [...s.running, id] }));
+}
+
+export function renamePortfolio(id: string, name: string) {
+  const state = usePortfolioStore.getState(), portfolio = state.portfolios.find(p => p.id === id);
+  if (!state.owner || !portfolio) return false;
+  const value = name.trim();
+  if (!value || value.length > 80) { usePortfolioStore.setState({ error: '请填写1至80字的账户名称' }); return false; }
+  return updatePortfolio({ ...portfolio, name: value });
+}
+export function removePortfolio(id: string) {
+  const state = usePortfolioStore.getState(), index = state.portfolios.findIndex(p => p.id === id);
+  if (!state.owner || index < 0) return false;
+  const portfolio = structuredClone(state.portfolios[index]), portfolios = state.portfolios.filter(p => p.id !== id);
+  if (!savePortfolios(portfolios)) return false;
+  usePortfolioStore.setState({
+    removedAccount: { portfolio, index }, selected: state.selected === id ? (portfolios[Math.min(index, portfolios.length - 1)]?.id ?? '') : state.selected,
+    running: state.running.filter(key => key !== id), pending: state.pending.filter(key => !key.startsWith(id + ':')),
+    status: Object.fromEntries(Object.entries(state.status).filter(([key]) => key !== id && !key.startsWith(id + ':'))),
+  });
+  return true;
+}
+export function undoPortfolioRemoval() {
+  const state = usePortfolioStore.getState(), removed = state.removedAccount;
+  if (!state.owner || !removed) return false;
+  if (state.portfolios.length >= 8 || state.portfolios.some(p => p.id === removed.portfolio.id)) {
+    usePortfolioStore.setState({ error: state.portfolios.length >= 8 ? '账户已满，请先整理账户' : '账户已存在' }); return false;
+  }
+  const portfolio = structuredClone(removed.portfolio), portfolios = [...state.portfolios];
+  portfolio.bindings = portfolio.bindings?.map(binding => ({ ...binding, enabled: false }));
+  portfolios.splice(Math.min(removed.index, portfolios.length), 0, portfolio);
+  if (!savePortfolios(portfolios)) return false;
+  usePortfolioStore.setState({ removedAccount: null, selected: portfolio.id, running: state.running.filter(id => id !== portfolio.id) });
+  return true;
 }

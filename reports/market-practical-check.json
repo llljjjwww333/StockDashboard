@@ -1,0 +1,13 @@
+{
+  "url": "http://127.0.0.1:5176",
+  "realBinanceOverview": true,
+  "activePairs": 20,
+  "cryptoTurnoverInUsdt": true,
+  "liquidityRanking": true,
+  "rankingPreferenceSurvivesReload": true,
+  "backRestoresNestedScrollAndFocus": true,
+  "smallCoinPricePrecision": true,
+  "noDuplicateMarketAction": true,
+  "noHorizontalOverflow": true,
+  "errors": []
+}

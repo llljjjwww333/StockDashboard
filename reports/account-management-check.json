@@ -1,0 +1,15 @@
+{
+  "url": "http://127.0.0.1:5176",
+  "fixtures": true,
+  "renamePersistsWithoutChangingBalances": true,
+  "blankNameRejected": true,
+  "exportAndReimportPreserveLedger": true,
+  "duplicateAndNonCryptoImportsRejected": true,
+  "failedRenameDeleteUndoPreserveData": true,
+  "deleteSelectionAndLastAccount": true,
+  "undoRestoresPausedAccount": true,
+  "pendingAiCannotTradeIntoRemovedAccount": true,
+  "creationAndCapacityWork": true,
+  "noHorizontalOverflow": true,
+  "errors": []
+}

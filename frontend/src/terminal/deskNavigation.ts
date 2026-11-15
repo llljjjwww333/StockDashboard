@@ -4,7 +4,7 @@ import type { ChinaBoardView, DeskView } from './types';
 import { readCryptoDeskRoute, readDeskRoute, writeDeskRoute } from './deskRoute.ts';
 import { normalizeNewsView, type NewsView } from './newsView.ts';
 
-export type MarketOrigin = { ticker: string; market: MarketType; anchorId: string; top: number; scroll: number; fromBoard: boolean };
+export type MarketOrigin = { ticker: string; market: MarketType; anchorId: string; top: number; scroll: number; fromBoard: boolean; rankingScroll?: number };
 export type DeskLocation = {
   view: DeskView;
   market: MarketType;

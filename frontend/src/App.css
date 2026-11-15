@@ -1246,3 +1246,12 @@ button { color: inherit; }
   .news-dialog h2 { font-size: 20px; }
   .empty-state { min-height: 360px; padding: 20px; }
 }
+
+.market-context-label { display: block; color: var(--dim); font-size: 12px; padding: 8px 0; }
+.market-rank-tabs { display: flex; gap: 4px; }
+.market-rank-tabs button { border: 1px solid var(--line); border-radius: 3px; background: var(--ink); color: var(--muted); cursor: pointer; padding: 5px 8px; font: inherit; font-size: 10px; }
+.market-rank-tabs button[aria-pressed=true] { color: var(--orange); border-color: var(--orange); background: var(--orange-soft); }
+.market-active-ranking { height: 548px; overflow-y: auto; overscroll-behavior: contain; overflow-anchor: none; }
+.market-active-ranking > p { margin: 0; padding: 10px 12px; color: var(--dim); font-size: 10px; }
+.market-active-ranking .mover-rows button { padding: 10px 14px; }
+.market-active-ranking .mover-rows .market-row-amount { margin-top: 4px; color: var(--dim); font-size: 10px; font-variant-numeric: tabular-nums; }

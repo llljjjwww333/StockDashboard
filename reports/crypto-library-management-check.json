@@ -1,0 +1,33 @@
+[
+  {
+    "width": 1366,
+    "height": 768,
+    "searchNameAndTicker": true,
+    "copyIndependentRules": true,
+    "definitionExportWithoutCredentials": true,
+    "deleteAndUndoSavedStrategy": true,
+    "undoRestoresIncompleteEdit": true,
+    "deployedSnapshotUnaffected": true,
+    "importDoesNotOverwrite": true,
+    "reloadKeepsImportedRules": true,
+    "failedDeleteKeepsLibrary": true,
+    "errors": []
+  },
+  {
+    "width": 1920,
+    "height": 1080,
+    "searchNameAndTicker": true,
+    "copyIndependentRules": true,
+    "definitionExportWithoutCredentials": true,
+    "deleteAndUndoSavedStrategy": true,
+    "undoRestoresIncompleteEdit": true,
+    "deployedSnapshotUnaffected": true,
+    "importDoesNotOverwrite": true,
+    "reloadKeepsImportedRules": true,
+    "failedDeleteKeepsLibrary": true,
+    "errors": []
+  },
+  {
+    "fullLibraryDoesNotEvictOldStrategies": true
+  }
+]
