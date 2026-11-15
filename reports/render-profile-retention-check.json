@@ -1,0 +1,10 @@
+{
+  "url": "https://stock-dashboard-web-rf7v.onrender.com",
+  "api": "https://stock-dashboard-api-trec.onrender.com",
+  "commit": "76292f92d641865138600f22584fa1d569601eb7",
+  "originUnchanged": true,
+  "configurationSurvivedDeployment": true,
+  "rememberedKeySurvivedReload": true,
+  "rememberedKeySurvivedNewSession": true,
+  "fixtureOnly": true
+}

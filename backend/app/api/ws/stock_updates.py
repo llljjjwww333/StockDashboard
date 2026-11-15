@@ -18,11 +18,11 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
         self.subscriptions: dict[str, list[WebSocket]] = {}  # ticker -> list of connections
-    
+
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
-    
+
     def disconnect(self, websocket: WebSocket):
         # Only remove if websocket is in the list
         if websocket in self.active_connections:
@@ -33,22 +33,22 @@ class ConnectionManager:
                 connections.remove(websocket)
             if not connections:
                 del self.subscriptions[ticker]
-    
+
     async def subscribe(self, websocket: WebSocket, ticker: str):
         if ticker not in self.subscriptions:
             self.subscriptions[ticker] = []
         if websocket not in self.subscriptions[ticker]:
             self.subscriptions[ticker].append(websocket)
-    
+
     async def unsubscribe(self, websocket: WebSocket, ticker: str):
         if ticker in self.subscriptions and websocket in self.subscriptions[ticker]:
             self.subscriptions[ticker].remove(websocket)
             if not self.subscriptions[ticker]:
                 del self.subscriptions[ticker]
-    
+
     async def send_personal_message(self, message: str, websocket: WebSocket):
         await websocket.send_text(message)
-    
+
     async def broadcast_to_subscribers(self, ticker: str, message: str):
         if ticker in self.subscriptions:
             for connection in list(self.subscriptions[ticker]):
@@ -63,7 +63,7 @@ manager = ConnectionManager()
 @router.websocket("/stock-updates")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
-    
+
     try:
         while True:
             # Wait for message from client
