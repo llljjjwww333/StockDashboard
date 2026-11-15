@@ -22,6 +22,10 @@ CN_INDICES = {
 BOARD_PAGE_SIZE = 24
 
 
+class _MissingBoardPage(ValueError):
+    pass
+
+
 def _number(value):
     try:
         number = float(value)
@@ -51,19 +55,37 @@ class ChinaBoardFeed:
         except (OSError, ValueError):
             payload = self.get_json(f"https://82.push2.eastmoney.com/api/qt/clist/get?{params}", 4)
         data = payload.get("data")
-        if not isinstance(data, dict) or not isinstance(data.get("diff"), list):
+        if "data" in payload and data is None:
+            raise _MissingBoardPage("Eastmoney returned no board page")
+        if not isinstance(data, dict):
             raise ValueError("Eastmoney board data unavailable")
+        diff = data.get("diff")
+        raw_total = _number(data.get("total"))
+        if raw_total is None or not raw_total.is_integer() or raw_total < 0:
+            raise ValueError("Eastmoney board count unavailable")
+        total = int(raw_total)
+        offset = (page - 1) * page_size
+        if not isinstance(diff, list):
+            # A shrinking list may no longer have the requested page.
+            if "diff" not in data or diff is not None or total > offset:
+                raise ValueError("Eastmoney board data unavailable")
+            diff = []
         rows = []
         pattern = r"\d{6}" if board else r"BK\d{4}"
-        for item in data["diff"]:
+        for item in diff:
             if not isinstance(item, dict):
                 continue
             ticker, name = str(item.get("f12", "")), str(item.get("f14", "")).strip()
             change, price = _number(item.get("f3")), _number(item.get("f2"))
-            if not re.fullmatch(pattern, ticker) or not name or change is None or price is None or price <= 0:
+            if not re.fullmatch(pattern, ticker) or not name:
                 continue
-            row = {"ticker": ticker, "name": name, "price": price, "change_percent": change,
-                   "amount": _number(item.get("f6")), "volume": int(_number(item.get("f5")) or 0) * 100}
+            if not board and (change is None or price is None or price <= 0):
+                continue
+            available_price = price is not None and price > 0
+            volume = _number(item.get("f5"))
+            row = {"ticker": ticker, "name": name, "price": price if available_price else None,
+                   "change_percent": change if available_price else None,
+                   "amount": _number(item.get("f6")), "volume": None if board and volume is None else int(volume or 0) * 100}
             if board:
                 row.update(turnover_rate=_number(item.get("f8")), volume_ratio=_number(item.get("f10")))
             else:
@@ -71,8 +93,7 @@ class ChinaBoardFeed:
                            leader_name=item.get("f128") if re.fullmatch(r"\d{6}", str(item.get("f140", ""))) else None,
                            leader_change=_number(item.get("f136")))
             rows.append(row)
-        total = int(_number(data.get("total")) or 0)
-        if total > (page - 1) * page_size and not rows:
+        if total > offset and not rows:
             raise ValueError("Eastmoney returned no valid board quotes")
         return {"rows": rows, "total": total, "page": page, "page_size": page_size,
                 "source": "Eastmoney", "updated_at": datetime.now(timezone.utc).isoformat(), "stale": False}
@@ -96,7 +117,7 @@ class ChinaBoardFeed:
         except (OSError, ValueError):
             industry = None
         return {"industry": industry, "boards": list(dict.fromkeys(name for name in memberships if name and name != industry)),
-                "source": "Eastmoney", "stale": False}
+                "source": "Eastmoney", "stale": False, "updated_at": datetime.now(timezone.utc).isoformat()}
 
     async def _load_memberships(self, secid):
         async with self.membership_limit:
@@ -129,7 +150,19 @@ class ChinaBoardFeed:
 
     async def get(self, category="industry", sort="strong", page=1, board=None):
         key = (category, sort, page, board)
-        return await self._get_cached(key, lambda: asyncio.to_thread(self._fetch, *key), 25, 1800)
+
+        async def load():
+            try:
+                return await asyncio.to_thread(self._fetch, *key)
+            except _MissingBoardPage:
+                if page == 1:
+                    raise
+                first = await self.get(category, sort, 1, board)
+                if first["stale"] or first["total"] > (page - 1) * first["page_size"]:
+                    raise
+                return {**first, "page": page, "rows": []}
+
+        return await self._get_cached(key, load, 25, 1800)
 
     async def _load_catalog(self, category):
         first = await asyncio.to_thread(self._fetch, category, "strong", 1, None, True)

@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Dict, Any
 
 class StockDataPoint(BaseModel):
@@ -7,7 +7,7 @@ class StockDataPoint(BaseModel):
     high: float
     low: float
     close: float
-    volume: int
+    volume: float
     average_price: float | None = None
 
 class StockHistoryResponse(BaseModel):
@@ -25,7 +25,7 @@ class StockHistoryResponse(BaseModel):
 class BookLevel(BaseModel):
     level: int
     price: float
-    volume: int
+    volume: float
 
 class OrderBook(BaseModel):
     bids: List[BookLevel]
@@ -35,7 +35,7 @@ class StockUpdate(BaseModel):
     ticker: str
     name: str | None = None
     price: float
-    volume: int
+    volume: float
     change_percent: float
     change: float | None = None
     open_price: float | None = None
@@ -62,6 +62,10 @@ class WebSocketMessage(BaseModel):
 
 
 class FinanceNewsItem(BaseModel):
+    id: str | None = None
+    language: str | None = None
+    tickers: List[str] = Field(default_factory=list)
+    topic: str | None = None
     title: str
     summary: str
     published_at: str
@@ -70,12 +74,21 @@ class FinanceNewsItem(BaseModel):
     market: str
 
 
+class FinanceNewsSource(BaseModel):
+    name: str
+    language: str
+    status: str
+    item_count: int
+    updated_at: str | None = None
+
+
 class FinanceNewsResponse(BaseModel):
     market: str
     updated_at: str
     keywords: List[str]
     items: List[FinanceNewsItem]
     stale: bool = False
+    sources: List[FinanceNewsSource] = Field(default_factory=list)
 
 
 class AiProviderSettings(BaseModel):

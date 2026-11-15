@@ -55,13 +55,17 @@
 .cn-board-tiles strong { font-size: 16px; line-height: 1; font-variant-numeric: tabular-nums; }
 .cn-board-tiles small { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .cn-board-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 12px; min-height: 43px; }
-.cn-pager { display: flex; align-items: center; justify-content: end; gap: 8px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.cn-pager { display: flex; flex-shrink: 0; align-items: center; justify-content: end; gap: 8px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .cn-pager button { min-width: 32px; min-height: 29px; border: 1px solid var(--line-soft); border-radius: 4px; background: var(--ink-raised); color: var(--text); font-size: 17px; cursor: pointer; }
 .cn-pager button:disabled { opacity: .4; cursor: default; }
+.cn-pager select { min-width: 48px; height: 29px; border: 1px solid var(--line-soft); border-radius: 4px; background: var(--ink-raised); color: var(--text); padding: 2px 4px; font: inherit; cursor: pointer; }
+.cn-board-footer > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cn-board-focus { scroll-margin-top: 75px; }
-.board-back { display: inline-flex; align-items: center; gap: 5px; margin: 0 0 6px; padding: 4px 7px; border: 1px solid var(--line-soft); border-radius: 4px; background: var(--ink-raised); color: var(--muted); font-size: 12px; cursor: pointer; }
-.board-back:hover { color: var(--text); background: var(--ink-hover); }
+.board-back, .watch-add { display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px; border: 1px solid var(--line-soft); border-radius: 4px; background: var(--ink-raised); color: var(--muted); font-size: 12px; cursor: pointer; }
+.board-back { margin-bottom: 6px; }
+.board-back:hover, .watch-add:hover { color: var(--text); background: var(--ink-hover); }
 .board-back .icon { width: 13px; height: 13px; transform: rotate(180deg); }
+.watch-add .icon { width: 13px; height: 13px; }
 .cn-board-focus .cn-section-header { border-bottom: 1px solid var(--line-soft); }
 .cn-focus-stale { margin-inline-start: 7px; font-weight: 400; }
 .cn-board-focus .cn-section-header strong { font-variant-numeric: tabular-nums; }
@@ -71,7 +75,8 @@
 .cn-focus-stats b { font-size: 13px; font-variant-numeric: tabular-nums; }
 .cn-focus-stats b span { font-size: 11px; font-weight: 500; }
 .cn-board-focus > .cn-breadth { padding: 0 16px 12px; }
-.cn-members-head { display: flex; justify-content: space-between; align-items: baseline; padding: 8px 16px; border-block: 1px solid var(--line-soft); }
+.cn-members-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 16px; border-block: 1px solid var(--line-soft); }
+.cn-members-sort { margin-inline-start: auto; }
 .cn-members-head h3 { margin: 0; font-size: 12px; font-weight: 600; }
 .cn-board-focus > .cn-pager { padding: 8px 12px; }
 .cn-rank-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
@@ -103,7 +108,7 @@
   .watch-item:hover .watch-remove, .watch-item .watch-remove:focus-visible { opacity: 1; }
 }
 @media (min-width: 1051px) {
-  .cn-board-layout:has(.cn-board-tiles button:only-child) { grid-template-columns: minmax(310px, .9fr) minmax(0, 1.7fr); }
+  .cn-board-layout[data-filtered="true"]:has(.cn-board-tiles button:only-child) { grid-template-columns: minmax(310px, .9fr) minmax(0, 1.7fr); }
   .cn-board-tiles:has(button:only-child) { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 1250px) {
@@ -132,7 +137,10 @@
   .cn-board-searchbox { flex-basis: 100%; max-width: none; }
   .cn-board-search { min-height: 38px; font-size: 16px; }
   .cn-segments button { min-height: 36px; }
+  .cn-pager button, .cn-pager select { min-height: 36px; }
+  .cn-pager select { font-size: 16px; }
   .cn-board-focus { scroll-margin-top: 8px; }
+  .watch-add { min-height: 36px; }
   .cn-rank-grid { grid-template-columns: minmax(0, 1fr); }
   .watch-context > small { display: none; }
   .watch-item:has(.watch-context) .watch-select { row-gap: 3px; }

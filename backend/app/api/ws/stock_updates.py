@@ -8,6 +8,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from contextlib import suppress
 from app.services.runtime import stock_service
+from app.services.market_calendar import market_hours
 
 router = APIRouter()
 
@@ -106,40 +107,53 @@ async def websocket_endpoint(websocket: WebSocket):
         manager.disconnect(websocket)
 
 def refresh_interval(tickers: list[str]) -> float:
-    """Trading-hour heuristic; source timestamps remain authoritative on holidays."""
+    """Use exchange holidays and close times while keeping a short opening/closing buffer."""
+    if any(stock_service.get_stock_market(ticker) == "CRYPTO" for ticker in tickers):
+        return max(1.0, min(float(os.getenv("QUOTE_REFRESH_SECONDS", "2")), 30.0))
     active = False
     for market, timezone in (("CN", "Asia/Shanghai"), ("US", "America/New_York")):
         if not any(stock_service.get_stock_market(ticker) == market for ticker in tickers):
             continue
         now = datetime.now(ZoneInfo(timezone))
         minutes = now.hour * 60 + now.minute
-        if now.weekday() >= 5:
+        hours = market_hours(market, now.date())
+        if hours is None:
             continue
         if market == "CN":
             active |= 9 * 60 + 15 <= minutes <= 11 * 60 + 35 or 12 * 60 + 55 <= minutes <= 15 * 60 + 10
         else:
-            active |= 9 * 60 + 25 <= minutes <= 16 * 60 + 5
+            active |= 9 * 60 + 25 <= minutes <= hours["regular"] + 5
     configured = max(1.0, min(float(os.getenv("QUOTE_REFRESH_SECONDS", "2")), 30.0))
     return configured if active else 30.0
 
 
+def due_quotes(tickers: list[str], last_refresh: dict[str, float], now: float) -> list[str]:
+    intervals = {}
+    requested = []
+    for ticker in tickers:
+        market = stock_service.get_stock_market(ticker)
+        if market not in intervals:
+            intervals[market] = refresh_interval([ticker])
+        if ticker not in last_refresh or now - last_refresh[ticker] >= intervals[market]:
+            requested.append(ticker)
+    return requested
+
+
 async def generate_stock_updates():
-    next_refresh = 0.0
-    known_tickers: set[str] = set()
+    last_refresh: dict[str, float] = {}
     while True:
         tickers = list(manager.subscriptions)
         if not tickers:
-            known_tickers.clear()
-            next_refresh = 0.0
+            last_refresh.clear()
             await asyncio.sleep(0.25)
             continue
         current = set(tickers)
-        new_tickers = current - known_tickers
-        if time.monotonic() < next_refresh and not new_tickers:
+        last_refresh = {ticker: refreshed for ticker, refreshed in last_refresh.items() if ticker in current}
+        started = time.monotonic()
+        requested = due_quotes(tickers, last_refresh, started)
+        if not requested:
             await asyncio.sleep(0.25)
             continue
-        requested = list(new_tickers) if time.monotonic() < next_refresh else tickers
-        started = time.monotonic()
         try:
             batches = await asyncio.gather(*(
                 stock_service.get_quote_batch(requested[index:index + 100])
@@ -154,9 +168,7 @@ async def generate_stock_updates():
                 await manager.broadcast_to_subscribers(ticker, json.dumps(message))
         except Exception as exc:
             print(f"Quote feed error: {type(exc).__name__}: {exc}")
-        known_tickers = current
-        if not new_tickers or set(requested) == current:
-            next_refresh = started + refresh_interval(tickers)
+        last_refresh.update({ticker: started for ticker in requested})
         await asyncio.sleep(0.25)
 
 

@@ -1,9 +1,11 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import type { Quote } from '../terminal/types';
 import { isOlderQuote } from '../lib/quotes';
+import { mergeWatchlist } from '../lib/watchlistBackup';
+import { normalizeWatchlistState, createWatchlistStorage, type WatchlistStorageIssue } from '../lib/watchlistPersistence';
 
-export type MarketType = 'US' | 'CN';
+export type MarketType = 'US' | 'CN' | 'CRYPTO';
 
 export interface WatchlistStock {
   ticker: string;
@@ -19,6 +21,8 @@ export interface StockQuote {
   asOf?: string | null;
   stale?: boolean;
   fetchedAt?: string | null;
+  receivedAt?: number;
+  streamConfirmedAt?: number | null;
   snapshot?: Quote;
 }
 
@@ -27,6 +31,8 @@ interface StockStore {
   selectedTicker: string | null;
   addToWatchlist: (stock: WatchlistStock & StockQuote) => void;
   removeFromWatchlist: (ticker: string) => void;
+  restoreToWatchlist: (stock: WatchlistStock, index: number) => void;
+  importWatchlist: (stocks: WatchlistStock[]) => void;
   selectStock: (ticker: string | null) => void;
 }
 
@@ -37,14 +43,15 @@ interface StockQuoteStore {
   seedQuote: (ticker: string, payload: StockQuote) => void;
   removeQuote: (ticker: string) => void;
   updateStockQuote: (ticker: string, payload: StockQuote) => void;
+  markQuoteStale: (ticker: string, requestStartedAt: number) => void;
 }
 
 const defaultWatchlist: WatchlistStock[] = [
-  { ticker: 'AAPL', name: 'Apple Inc.', market: 'US' },
-  { ticker: 'NVDA', name: 'NVIDIA Corporation', market: 'US' },
-  { ticker: 'TSLA', name: 'Tesla Inc.', market: 'US' },
-  { ticker: '600519', name: 'Kweichow Moutai', market: 'CN' },
-  { ticker: '300059', name: 'East Money', market: 'CN' },
+  { ticker: 'BTCUSDT', name: 'Bitcoin / USDT', market: 'CRYPTO' },
+  { ticker: 'ETHUSDT', name: 'Ethereum / USDT', market: 'CRYPTO' },
+  { ticker: 'SOLUSDT', name: 'Solana / USDT', market: 'CRYPTO' },
+  { ticker: 'BNBUSDT', name: 'BNB / USDT', market: 'CRYPTO' },
+  { ticker: 'XRPUSDT', name: 'XRP / USDT', market: 'CRYPTO' },
 ];
 
 export const useStockQuoteStore = create<StockQuoteStore>()((set) => ({
@@ -57,7 +64,7 @@ export const useStockQuoteStore = create<StockQuoteStore>()((set) => ({
         ? state.quotes
         : {
             ...state.quotes,
-            [ticker]: payload,
+            [ticker]: { ...payload, stale: true },
           },
     })),
   removeQuote: (ticker) =>
@@ -70,10 +77,17 @@ export const useStockQuoteStore = create<StockQuoteStore>()((set) => ({
       delete nextQuotes[ticker];
       return { quotes: nextQuotes };
     }),
+  markQuoteStale: (ticker, requestStartedAt) =>
+    set((state) => {
+      const quote = state.quotes[ticker];
+      if (!quote || quote.stale || (quote.receivedAt ?? 0) >= requestStartedAt) return state;
+      return { quotes: { ...state.quotes, [ticker]: { ...quote, stale: true } } };
+    }),
   updateStockQuote: (ticker, payload) =>
     set((state) => {
       const current = state.quotes[ticker];
       if (isOlderQuote(payload, current)) return state;
+      const streamConfirmedAt = payload.streamConfirmedAt === undefined ? current?.streamConfirmedAt : payload.streamConfirmedAt;
       if (
         current &&
         current.price === payload.price &&
@@ -83,6 +97,8 @@ export const useStockQuoteStore = create<StockQuoteStore>()((set) => ({
         current.source === payload.source &&
         current.stale === payload.stale &&
         current.fetchedAt === payload.fetchedAt &&
+        current.receivedAt === payload.receivedAt &&
+        current.streamConfirmedAt === streamConfirmedAt &&
         current.snapshot === payload.snapshot
       ) {
         return state;
@@ -91,11 +107,14 @@ export const useStockQuoteStore = create<StockQuoteStore>()((set) => ({
       return {
         quotes: {
           ...state.quotes,
-          [ticker]: payload,
+          [ticker]: { ...payload, streamConfirmedAt },
         },
       };
     }),
 }));
+
+export const useWatchlistStorage = create<{ issue: WatchlistStorageIssue }>(() => ({ issue: null }));
+const setStorageIssue = (issue: WatchlistStorageIssue) => useWatchlistStorage.setState({ issue });
 
 export const useStockStore = create<StockStore>()(
   persist(
@@ -134,10 +153,24 @@ export const useStockStore = create<StockStore>()(
             selectedTicker: nextSelectedTicker,
           };
         }),
+      restoreToWatchlist: (stock, index) => set(state => {
+        if (state.watchlist.some(item => item.ticker === stock.ticker)) return state;
+        const watchlist = [...state.watchlist];
+        watchlist.splice(Math.max(0, Math.min(index, watchlist.length)), 0, stock);
+        return { watchlist, selectedTicker: state.selectedTicker ?? stock.ticker };
+      }),
+      importWatchlist: stocks => set(state => {
+        const watchlist = mergeWatchlist(state.watchlist, stocks);
+        return { watchlist, selectedTicker: state.selectedTicker ?? watchlist[0]?.ticker ?? null };
+      }),
       selectStock: (ticker) => set({ selectedTicker: ticker }),
     }),
     {
-      name: 'stock-dashboard-watchlist',
+      name: 'crypto-dashboard-watchlist:v1',
+      storage: createJSONStorage(() => createWatchlistStorage(() => localStorage, setStorageIssue)),
+      partialize: state => ({ watchlist: state.watchlist, selectedTicker: state.selectedTicker }),
+      merge: (saved, current) => ({ ...current, ...normalizeWatchlistState(saved, current) }),
+      onRehydrateStorage: () => (_state, error) => { if (error) setStorageIssue('read'); },
     },
   ),
 );

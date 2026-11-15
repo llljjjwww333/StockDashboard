@@ -1,6 +1,10 @@
 import { useStockQuoteStore, useStockStore } from '../store/stockStore';
 import { getWebSocketUrl } from '../lib/api';
+import { isMarketQuote } from '../lib/marketPayload';
 import { toStoredQuote } from '../lib/quotes';
+import { streamQuoteTickers } from '../lib/quoteSubscriptions';
+import { isQuoteStreamHealthy } from '../lib/quoteStreamHealth';
+import { isActivePhase, marketPhase } from '../terminal/marketSession';
 
 const CONNECT_TIMEOUT_MS = 12000;
 const HEARTBEAT_MS = 15000;
@@ -15,6 +19,15 @@ class StockWebSocketService {
   private manualDisconnect = false;
   private reconnectAttempts = 0;
   private subscribedTickers = new Set<string>();
+  private subscriptionStartedAt = new Map<string, number>();
+  private failedTickers = new Set<string>();
+  private healthListeners = new Set<() => void>();
+  private notifyHealth = () => { for (const listener of this.healthListeners) listener(); };
+  subscribeHealth = (listener: () => void) => {
+    this.healthListeners.add(listener);
+    return () => { this.healthListeners.delete(listener); };
+  };
+  private activeTicker: string | null = null;
   private listening = false;
   private onOffline = () => {
     this.dropConnection();
@@ -31,6 +44,7 @@ class StockWebSocketService {
     if (document.hidden || this.manualDisconnect || !navigator.onLine) return;
     if (!this.socket || Date.now() - this.lastMessageAt >= SILENCE_TIMEOUT_MS) this.onOnline();
   };
+  private onPageShow = (event: PageTransitionEvent) => { if (event.persisted) this.onVisible(); };
 
   private clearConnectionTimer() {
     if (this.connectionTimer !== null) clearTimeout(this.connectionTimer);
@@ -44,8 +58,10 @@ class StockWebSocketService {
     this.socket = null;
     if (socket) { socket.onclose = null; socket.close(); }
     this.subscribedTickers.clear();
+    this.subscriptionStartedAt.clear(); this.failedTickers.clear();
     this.isConnected = false;
     useStockQuoteStore.getState().setConnectionStatus('disconnected');
+    this.notifyHealth();
   }
 
   connect() {
@@ -54,6 +70,7 @@ class StockWebSocketService {
       window.addEventListener('online', this.onOnline);
       window.addEventListener('offline', this.onOffline);
       document.addEventListener('visibilitychange', this.onVisible);
+      window.addEventListener('pageshow', this.onPageShow);
       this.listening = true;
     }
     if (!navigator.onLine) {
@@ -100,18 +117,7 @@ class StockWebSocketService {
         this.reconnectAttempts = 0;
         this.subscribedTickers.clear();
 
-        const currentWatchlist = useStockStore.getState().watchlist;
-        currentWatchlist.forEach((stock) => {
-          if (socket.readyState === WebSocket.OPEN) {
-            socket.send(
-              JSON.stringify({
-                type: 'subscribe',
-                data: { ticker: stock.ticker },
-              }),
-            );
-            this.subscribedTickers.add(stock.ticker);
-          }
-        });
+        this.updateSubscriptions();
       };
 
       socket.onmessage = (event) => {
@@ -119,11 +125,22 @@ class StockWebSocketService {
         try {
           const message = JSON.parse(event.data);
           this.lastMessageAt = Date.now();
-          if (message.type === 'update') {
-            useStockQuoteStore.getState().updateStockQuote(message.data.ticker, toStoredQuote(message.data));
-          } else if (message.type === 'error' && message.data?.ticker) {
+          if (message.type === 'update' && isMarketQuote(message.data) && this.subscribedTickers.has(message.data.ticker)) {
+            const quote = toStoredQuote(message.data, this.lastMessageAt);
+            const failed = this.failedTickers.has(message.data.ticker);
+            if (quote.stale) this.failedTickers.add(message.data.ticker); else this.failedTickers.delete(message.data.ticker);
+            useStockQuoteStore.getState().updateStockQuote(message.data.ticker, {
+              ...quote, streamConfirmedAt: quote.stale ? null : this.lastMessageAt,
+            });
+            if (failed !== Boolean(quote.stale)) this.notifyHealth();
+          } else if (message.type === 'error' && this.subscribedTickers.has(message.data?.ticker)) {
+            this.failedTickers.add(message.data.ticker);
             const current = useStockQuoteStore.getState().quotes[message.data.ticker];
-            if (current) useStockQuoteStore.getState().updateStockQuote(message.data.ticker, { ...current, stale: true });
+            if (current) useStockQuoteStore.getState().updateStockQuote(message.data.ticker, {
+              ...current, streamConfirmedAt: null,
+              stale: current.stale || (current.streamConfirmedAt != null && current.receivedAt === current.streamConfirmedAt),
+            });
+            this.notifyHealth();
           }
         } catch (error) {
           console.error('Error parsing WebSocket message:', error);
@@ -141,6 +158,7 @@ class StockWebSocketService {
         this.isConnected = false;
         useStockQuoteStore.getState().setConnectionStatus('disconnected');
         this.subscribedTickers.clear();
+        this.subscriptionStartedAt.clear(); this.failedTickers.clear(); this.notifyHealth();
         if (!this.manualDisconnect) {
           this.scheduleReconnect();
         }
@@ -163,13 +181,18 @@ class StockWebSocketService {
     }, delay);
   }
 
+  setActiveTicker(ticker: string | null) {
+    if (this.activeTicker === ticker) return;
+    this.activeTicker = ticker;
+    this.updateSubscriptions();
+  }
+
   updateSubscriptions() {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       return;
     }
 
-    const currentWatchlist = useStockStore.getState().watchlist;
-    const currentTickers = new Set(currentWatchlist.map((stock) => stock.ticker));
+    const currentTickers = streamQuoteTickers(useStockStore.getState().watchlist, this.activeTicker);
 
     this.subscribedTickers.forEach((ticker) => {
       if (!currentTickers.has(ticker)) {
@@ -182,9 +205,10 @@ class StockWebSocketService {
         this.subscribeToStock(ticker);
       }
     });
+    this.notifyHealth();
   }
 
-  subscribeToStock(ticker: string) {
+  private subscribeToStock(ticker: string) {
     if (
       this.socket &&
       this.socket.readyState === WebSocket.OPEN &&
@@ -198,10 +222,11 @@ class StockWebSocketService {
         }),
       );
       this.subscribedTickers.add(ticker);
+      this.subscriptionStartedAt.set(ticker, Date.now()); this.failedTickers.delete(ticker);
     }
   }
 
-  unsubscribeFromStock(ticker: string) {
+  private unsubscribeFromStock(ticker: string) {
     if (
       this.socket &&
       this.socket.readyState === WebSocket.OPEN &&
@@ -215,6 +240,7 @@ class StockWebSocketService {
         }),
       );
       this.subscribedTickers.delete(ticker);
+      this.subscriptionStartedAt.delete(ticker); this.failedTickers.delete(ticker);
     }
   }
 
@@ -223,6 +249,7 @@ class StockWebSocketService {
     window.removeEventListener('online', this.onOnline);
     window.removeEventListener('offline', this.onOffline);
     document.removeEventListener('visibilitychange', this.onVisible);
+    window.removeEventListener('pageshow', this.onPageShow);
     this.listening = false;
     this.dropConnection();
     this.reconnectAttempts = 0;
@@ -230,6 +257,16 @@ class StockWebSocketService {
 
   getIsConnected() {
     return this.isConnected;
+  }
+
+  hasSubscription(ticker: string) {
+    return this.isConnected && this.subscribedTickers.has(ticker);
+  }
+
+  hasHealthySubscription(ticker: string, now = Date.now(), active?: boolean) {
+    if (!this.hasSubscription(ticker) || this.failedTickers.has(ticker)) return false;
+    return isQuoteStreamHealthy(this.subscriptionStartedAt.get(ticker), useStockQuoteStore.getState().quotes[ticker]?.streamConfirmedAt,
+      false, active ?? isActivePhase(marketPhase(ticker, new Date(now))), now);
   }
 }
 

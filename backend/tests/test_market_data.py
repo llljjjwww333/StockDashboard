@@ -1,9 +1,10 @@
 import asyncio
 from datetime import datetime, timezone
 import io
+import json
 import time
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.schemas.stock import StockDataPoint, StockHistoryResponse, StockUpdate
 from app.services.cn_market import ChinaBoardFeed
@@ -17,6 +18,48 @@ def quote(ticker="600519"):
 
 
 class MarketDataTests(unittest.IsolatedAsyncioTestCase):
+    def test_eastmoney_uses_direct_transport_when_a_proxy_is_configured(self):
+        service = StockDataService()
+        opener = MagicMock()
+        opener.open.return_value = io.BytesIO(b'{"data":{"ok":true}}')
+        with patch("urllib.request.getproxies", return_value={"https": "http://proxy.example:8080"}), \
+                patch("urllib.request.build_opener", return_value=opener) as build, patch("urllib.request.urlopen") as proxied:
+            self.assertEqual(service._http_get_json("https://push2.eastmoney.com/api/fixture", 4), {"data": {"ok": True}})
+            self.assertEqual(build.call_args.args[0].proxies, {})
+            self.assertEqual(opener.open.call_args.kwargs["timeout"], 4)
+            proxied.assert_not_called()
+
+    def test_eastmoney_transport_failure_falls_back_to_the_existing_proxy(self):
+        service = StockDataService()
+        opener = MagicMock()
+        opener.open.side_effect = OSError("direct connection unavailable")
+        with patch("urllib.request.getproxies", return_value={"https": "http://proxy.example:8080"}), \
+                patch("urllib.request.build_opener", return_value=opener), \
+                patch("urllib.request.urlopen", return_value=io.BytesIO(b'{"data":123}')) as proxied:
+            self.assertEqual(service._http_get_json("https://push2.eastmoney.com/api/fixture"), {"data": 123})
+            proxied.assert_called_once()
+
+    def test_eastmoney_http_errors_do_not_trigger_an_alternate_route(self):
+        from urllib.error import HTTPError
+        service = StockDataService()
+        opener = MagicMock()
+        opener.open.side_effect = HTTPError("https://push2.eastmoney.com/", 403, "Forbidden", {}, None)
+        with patch("urllib.request.getproxies", return_value={"https": "http://proxy.example:8080"}), \
+                patch("urllib.request.build_opener", return_value=opener), patch("urllib.request.urlopen") as proxied:
+            with self.assertRaises(HTTPError):
+                service._http_get_json("https://push2.eastmoney.com/api/fixture")
+            proxied.assert_not_called()
+
+    def test_other_sources_and_unproxied_eastmoney_keep_the_standard_transport(self):
+        service = StockDataService()
+        for url, proxies in [("https://web.ifzq.gtimg.cn/fixture", {"https": "http://proxy.example:8080"}),
+                             ("https://push2.eastmoney.com/api/fixture", {})]:
+            with patch("urllib.request.getproxies", return_value=proxies), patch("urllib.request.build_opener") as build, \
+                    patch("urllib.request.urlopen", return_value=io.BytesIO(b'{"data":123}')) as standard:
+                self.assertEqual(service._http_get_json(url), {"data": 123})
+                standard.assert_called_once()
+                build.assert_not_called()
+
     async def test_search_expands_beyond_static_us_directory(self):
         service = StockDataService()
         with patch.object(service, "_http_get_text", return_value='v_hint="us~amd.oq~Advanced Micro Devices~amd~GP"') as upstream:
@@ -31,6 +74,26 @@ class MarketDataTests(unittest.IsolatedAsyncioTestCase):
         payload = {"QuotationCodeTable": {"Data": [{"Code": "510300", "Name": "沪深300ETF", "Classify": "Fund", "MktNum": "1"}]}}
         with patch.object(service, "_http_get_json", return_value=payload):
             self.assertEqual((await service.search_stocks("510300", "CN"))[0]["ticker"], "510300")
+
+    async def test_exact_a_share_search_prefers_fresh_local_directory(self):
+        service = StockDataService()
+        stock = {"ticker": "920117", "name": "龙鑫智能"}
+        directory = {"saved_at": time.time(), "rows": [stock]}
+        with patch.object(service, "_read_json_cache", return_value=directory), patch.object(service, "_http_get_json") as upstream:
+            self.assertEqual(await service.search_stocks("９２０１１７", "CN"), [stock])
+            self.assertEqual(await service.search_stocks(stock["name"], "CN"), [stock])
+            upstream.assert_not_called()
+
+    async def test_expired_directory_is_used_only_when_online_search_fails(self):
+        service = StockDataService()
+        stock = {"ticker": "920117", "name": "旧名称"}
+        directory = {"saved_at": time.time() - 172800, "rows": [stock]}
+        payload = {"QuotationCodeTable": {"Data": [{"Code": "920117", "Name": "龙鑫智能", "Classify": "AStock"}]}}
+        with patch.object(service, "_read_json_cache", return_value=directory), patch.object(service, "_http_get_json", return_value=payload):
+            self.assertEqual(await service.search_stocks("920117", "CN"), [{"ticker": "920117", "name": "龙鑫智能"}])
+        service.search_cache.clear()
+        with patch.object(service, "_read_json_cache", return_value=directory), patch.object(service, "_http_get_json", side_effect=OSError("offline")):
+            self.assertEqual(await service.search_stocks("920117", "CN"), [stock])
 
     async def test_non_exchange_funds_are_not_misrepresented_as_stocks(self):
         service = StockDataService()
@@ -88,9 +151,125 @@ class MarketDataTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result["stale"])
         self.assertEqual(result["rows"], first["rows"])
 
+    async def test_constituent_api_supports_deep_pages_and_all_sort_orders(self):
+        from app.main import app
+        from app.api.routes import stock_service
+
+        async def request(query):
+            messages = []
+
+            async def receive():
+                return {"type": "http.request", "body": b"", "more_body": False}
+
+            async def send(message):
+                messages.append(message)
+
+            path = "/api/v1/market/cn/boards/BK0596/members"
+            await app({"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+                       "method": "GET", "scheme": "http", "path": path, "raw_path": path.encode(),
+                       "root_path": "", "query_string": query.encode(), "headers": [],
+                       "client": ("127.0.0.1", 1), "server": ("fixture", 80)}, receive, send)
+            status = next(message["status"] for message in messages if message["type"] == "http.response.start")
+            body = json.loads(b"".join(message.get("body", b"") for message in messages if message["type"] == "http.response.body"))
+            return status, body
+
+        def response(**options):
+            return {"rows": [], "total": 3890, "page": options["page"], "page_size": 12,
+                    "source": "Fixture", "updated_at": "2026-11-05T08:00:00Z"}
+
+        with patch.object(stock_service.cn_boards, "get", new=AsyncMock(side_effect=response)) as feed:
+            for sort in ("strong", "weak", "amount"):
+                status, body = await request(f"page=101&sort={sort}")
+                self.assertEqual(status, 200)
+                self.assertEqual(body["page"], 101)
+                feed.assert_awaited_with(sort=sort, page=101, board="BK0596")
+            status, body = await request("page=325")
+            self.assertEqual(status, 200)
+            self.assertEqual(body["page"], 325)
+            feed.assert_awaited_with(sort="strong", page=325, board="BK0596")
+            for invalid in ("page=0", "page=1&sort=invalid"):
+                self.assertEqual((await request(invalid))[0], 422)
+            self.assertEqual(feed.await_count, 4)
+
+    async def test_constituent_sort_orders_use_separate_upstream_pages_and_caches(self):
+        from urllib.parse import parse_qs, urlsplit
+        requested = []
+
+        def fetch(url, timeout):
+            query = parse_qs(urlsplit(url).query)
+            requested.append((query["fid"][0], query["po"][0], query["pn"][0], query["pz"][0]))
+            return {"data": {"total": 3890, "diff": [
+                {"f12": "600519", "f14": "Fixture", "f2": 100, "f3": 1, "f6": 200},
+            ]}}
+
+        feed = ChinaBoardFeed(fetch)
+        for sort in ("strong", "weak", "amount", "weak"):
+            result = await feed.get(sort=sort, page=101, board="BK0596")
+            self.assertEqual(result["page"], 101)
+        self.assertEqual(requested, [("f3", "1", "101", "12"), ("f3", "0", "101", "12"), ("f6", "1", "101", "12")])
+
+    async def test_unquoted_constituents_preserve_identity_and_missing_values_on_last_page(self):
+        payload = {"data": {"total": 3890, "diff": [
+            {"f12": "002129", "f14": "Fixture one", "f2": "-", "f3": "-", "f5": "-", "f6": "-"},
+            {"f12": "000831", "f14": "Fixture two", "f2": "-", "f3": "-", "f5": "-", "f6": "-"},
+        ]}}
+        feed = ChinaBoardFeed(lambda *_: payload)
+        result = await feed.get(sort="amount", page=325, board="BK0596")
+        self.assertEqual([row["ticker"] for row in result["rows"]], ["002129", "000831"])
+        self.assertEqual(result["page"], 325)
+        self.assertFalse(result["stale"])
+        for row in result["rows"]:
+            for field in ("price", "change_percent", "volume", "amount"):
+                self.assertIsNone(row[field])
+        with self.assertRaises(ValueError):
+            await feed.get()
+
+        partial = {"data": {"total": 1, "diff": [
+            {"f12": "002129", "f14": "Known price", "f2": 100, "f3": "-", "f5": 0},
+        ]}}
+        known = await ChinaBoardFeed(lambda *_: partial).get(board="BK0596")
+        self.assertEqual(known["rows"][0]["price"], 100)
+        self.assertIsNone(known["rows"][0]["change_percent"])
+        self.assertEqual(known["rows"][0]["volume"], 0)
+
+    async def test_board_pages_distinguish_empty_pages_from_missing_quotes(self):
+        payload = {"data": {"total": 10, "diff": None}}
+        feed = ChinaBoardFeed(lambda *_: payload)
+        for board in (None, "BK1326"):
+            with self.subTest(board=board):
+                result = await feed.get(page=2, board=board)
+                self.assertEqual(result["rows"], [])
+                self.assertEqual(result["total"], 10)
+                self.assertEqual(result["page"], 2)
+                self.assertFalse(result["stale"])
+                with self.assertRaises(ValueError):
+                    await feed.get(page=1, board=board)
+
+    async def test_board_pages_verify_missing_payload_against_first_page_count(self):
+        from urllib.parse import parse_qs, urlsplit
+
+        def fetch(url, timeout):
+            query = parse_qs(urlsplit(url).query)
+            if query["pn"] != ["1"]:
+                return {"data": None}
+            member_list = query["fs"][0].startswith("b:")
+            ticker = "600519" if member_list else "BK1326"
+            return {"data": {"total": 15, "diff": [{"f12": ticker, "f14": "Fixture", "f2": 100, "f3": 1}]}}
+
+        feed = ChinaBoardFeed(fetch)
+        for board, page in ((None, 2), ("BK1326", 3)):
+            with self.subTest(board=board):
+                result = await feed.get(page=page, board=board)
+                self.assertEqual((result["page"], result["total"], result["rows"]), (page, 15, []))
+                self.assertFalse(result["stale"])
+        with self.assertRaises(ValueError):
+            await feed.get(page=2, board="BK1326")
+
     async def test_stock_memberships_keep_primary_industry_and_multiple_boards(self):
         from urllib.parse import parse_qs, urlsplit
+        calls = []
         def fetch(url, timeout):
+            calls.append(url)
             query = parse_qs(urlsplit(url).query)
             self.assertEqual(query["secid"], ["0.920117"])
             industry = {"f12": "BK0545", "f14": "通用设备"}
@@ -100,9 +279,16 @@ class MarketDataTests(unittest.IsolatedAsyncioTestCase):
 
         service = StockDataService()
         service.cn_boards = ChinaBoardFeed(fetch)
+        before = datetime.now(timezone.utc)
         result = await service.get_stock_memberships("920117")
         self.assertEqual(result["industry"], "通用设备")
         self.assertEqual(result["boards"], ["高端装备", "固态电池"])
+        updated_at = datetime.fromisoformat(result["updated_at"])
+        self.assertLessEqual(before, updated_at)
+        self.assertLessEqual(updated_at, datetime.now(timezone.utc))
+        cached = await service.get_stock_memberships("920117")
+        self.assertEqual(cached["updated_at"], result["updated_at"])
+        self.assertEqual(len(calls), 2)
 
     async def test_board_search_checks_later_pages_and_reuses_catalog_across_queries(self):
         from urllib.parse import parse_qs, urlsplit

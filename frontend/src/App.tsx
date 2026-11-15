@@ -1,44 +1,77 @@
-import { t, useLanguage } from './lib/i18n';
-import { type CSSProperties, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { getLocale, t, useLanguage } from './lib/i18n';
+import { formatVolume } from './lib/volumePresentation';
+import { type CSSProperties, type PointerEvent, type ReactNode, memo, useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import './App.css';
 import { stockWebSocketService } from './services/stockWebSocketService';
-import { type MarketType, type StockQuote, useStockQuoteStore, useStockStore } from './store/stockStore';
+import { type MarketType, type StockQuote, type WatchlistStock, useStockQuoteStore, useStockStore, useWatchlistStorage } from './store/stockStore';
 import { MarketChart } from './terminal/MarketChart';
+import { liveDailyHistory } from './terminal/liveDailyHistory';
 import { OrderBook } from './terminal/OrderBook';
 import { ChinaMarkets } from './terminal/ChinaMarkets';
 import { StockTags } from './terminal/StockTags';
+import { WatchlistQuoteFallback } from './terminal/WatchlistQuoteFallback';
 import { isChinaIndex } from './lib/instrumentIdentity';
-import { MarketClock } from './terminal/MarketClock';
+import { MarketClock, QuoteFreshnessBadge } from './terminal/MarketClock';
+import { useAgedWatchlistQuotes } from './terminal/useMarketPhase';
 import { pricePrecision } from './lib/pricePrecision';
 import { IndicatorPicker } from './terminal/IndicatorPicker';
+import { analysisIndicatorValues } from './terminal/indicators';
 import { candleIntervals, candlePeriodAllowed, chartSelection, initialChartSelection, loadChartSelection, saveChartSelection, type CandleInterval, type ChartMode } from './terminal/chartSelection';
-import { toStoredQuote } from './lib/quotes';
+import { applyLinkedChart, readCryptoDeskRoute as readDeskRoute } from './terminal/deskRoute';
+import { DeskNavigation, type DeskEntry, type MarketOrigin } from './terminal/deskNavigation';
+import { loadWatchSort, sortWatchlist, watchSortKey, type WatchSort } from './terminal/watchlistSort';
+import { filterWatchlist, type WatchlistFilter } from './terminal/watchlistFilter';
+import { isOlderQuote, toStoredQuote } from './lib/quotes';
 import { SettingsDialog } from './ai/SettingsDialog';
+import { useKeyboard } from './store/keyboardStore';
+import { BackToTop } from './terminal/BackToTop';
+import { ChartDataExport } from './terminal/ChartDataExport';
+import { usePortfolioRunner } from './terminal/usePortfolioRunner';
+import { SimulationView } from './terminal/SimulationView';
+import { StrategyLab } from './terminal/StrategyLab';
+import { ResourceError } from './terminal/ResourceError';
+import { newsSourceLink } from './lib/newsSource';
+import { NewsDesk } from './terminal/NewsDesk';
+import { markNewsRead, toggleNewsSaved, useNewsLibrary } from './terminal/newsLibrary';
+import { newsCoins, newsId, newsLanguage } from './terminal/newsFilters';
+import { useOnlineStatus } from './lib/useOnlineStatus';
+import { changeTone, changeDirection, priceChangeTone, type ChangeTone } from './lib/changePresentation';
+import { normalizeNewsView } from './terminal/newsView';
 import { AiControls, AnalysisSummary } from './ai/AiControls';
 import { useAiProfiles } from './ai/profileStore';
 import { useAnalysis } from './ai/useAnalysis';
+import { plotAnalysis } from './ai/plotAnalysis';
 import type { AnalysisResult } from './ai/types';
 import './ai/ai.css';
 import './terminal/chartPresentation.css';
-import { periodOptions, type ChinaBoardView, type DeskView, type HotspotRow, type NewsItem, type PeriodKey, type Quote } from './terminal/types';
+import { periodOptions, type ChinaBoardMember, type ChinaBoardView, type DeskView, type HotspotRow, type NewsItem, type PeriodKey, type Quote } from './terminal/types';
 import {
   formatClock,
   formatCompact,
   formatPrice,
   formatSigned,
+  useHistoryPrefetch,
   useInstrumentData,
   useMarketOverview,
   useNewsFeed,
   useStockSearch,
 } from './terminal/useTerminalData';
 
-type IconName = 'overview' | 'markets' | 'news' | 'search' | 'plus' | 'remove' | 'arrow' | 'pulse' | 'expand';
+type IconName = 'overview' | 'markets' | 'news' | 'search' | 'plus' | 'remove' | 'arrow' | 'pulse' | 'expand' | 'wallet';
 
 const navItems: Array<{ id: DeskView; label: string; icon: IconName }> = [
   { id: 'overview', label: '研究台', icon: 'overview' },
   { id: 'markets', label: '市场', icon: 'markets' },
   { id: 'news', label: '情报', icon: 'news' },
+  { id: 'strategy', label: '策略', icon: 'pulse' },
+  { id: 'simulation', label: '模拟', icon: 'wallet' },
 ];
+
+const marketBenchmarks: Record<MarketType, WatchlistStock> = {
+  CRYPTO: { ticker: 'BTCUSDT', name: 'Bitcoin / USDT', market: 'CRYPTO' },
+  CN: { ticker: 'SH000001', name: '上证指数', market: 'CN' },
+  US: { ticker: 'SPY', name: 'SPDR S&P 500 ETF Trust', market: 'US' },
+};
 
 const iconPaths: Record<IconName, ReactNode> = {
   overview: <><rect x="3" y="3" width="8" height="18" /><rect x="15" y="3" width="6" height="7" /><rect x="15" y="14" width="6" height="7" /></>,
@@ -48,6 +81,7 @@ const iconPaths: Record<IconName, ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
   remove: <><path d="M5 7h14M9 7V4h6v3M8 7l1 13h6l1-13" /></>,
   arrow: <><path d="M5 12h14M14 7l5 5-5 5" /></>,
+  wallet: <><path d="M4 6h15V4H5a2 2 0 0 0-2 2v13h18V8H5a2 2 0 0 1-2-2" /><path d="M16 11h5v5h-5z" /></>,
   pulse: <path d="M3 13h4l2-7 4 13 2-7h6" />,
   expand: <path d="M3 9V3h6m6 0h6v6m0 6v6h-6m-6 0H3v-6" />,
 };
@@ -57,63 +91,104 @@ function Icon({ name }: { name: IconName }) {
 }
 
 function Delta({ value, suffix = '%' }: { value: number; suffix?: string }) {
-  return <span className={`delta ${value >= 0 ? 'positive' : 'negative'}`}>{formatSigned(value)}{suffix}</span>;
+  return <span className={`delta ${changeTone(value)}`}>{formatSigned(value)}{Number.isFinite(value) ? suffix : ''}</span>;
 }
 
-const getInitialView = (): DeskView => {
-  const value = new URLSearchParams(window.location.search).get('view');
-  return value === 'markets' || value === 'news' ? value : 'overview';
-};
-
-const getInitialMarket = (): MarketType => new URLSearchParams(window.location.search).get('market') === 'CN' ? 'CN' : 'US';
-
 function App() {
+  usePortfolioRunner();
   useLanguage();
+  const online = useOnlineStatus();
   const { watchlist, selectedTicker, addToWatchlist, removeFromWatchlist, selectStock } = useStockStore();
   const quotes = useStockQuoteStore((state) => state.quotes);
   const connectionStatus = useStockQuoteStore((state) => state.connectionStatus);
   const updateQuote = useStockQuoteStore((state) => state.updateStockQuote);
-  const [view, setView] = useState<DeskView>(getInitialView);
-  const [market, setMarket] = useState<MarketType>(getInitialMarket);
-  const [chart, dispatchChart] = useReducer(chartSelection, initialChartSelection, () => loadChartSelection());
+  const [navigation] = useState(() => new DeskNavigation(window.history, () => new URL(window.location.href), true));
+  const [entryAtLoad] = useState(() => navigation.restore(window.history.state));
+  const [route] = useState(() => readDeskRoute(new URLSearchParams(window.location.search)));
+  const [view, setView] = useState<DeskView>(entryAtLoad?.location.view ?? route.view);
+  const [market, setMarket] = useState<MarketType>(() =>
+    entryAtLoad?.location.market ?? route.market ?? watchlist.find(stock => stock.ticker === selectedTicker)?.market ?? 'CRYPTO');
+  const [chart, dispatchChart] = useReducer(chartSelection, initialChartSelection, () => entryAtLoad?.location.chart ?? applyLinkedChart(loadChartSelection(), route.chart));
+  const initialChart = useRef(chart);
   const { period, mode: chartMode } = chart;
   const [searchQuery, setSearchQuery] = useState('');
+  const [newsView, setNewsView] = useState(() => normalizeNewsView(entryAtLoad?.location.newsView));
+  const [searchComposing, setSearchComposing] = useState(false);
   const [activeStory, setActiveStory] = useState<NewsItem | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [immersive, setImmersive] = useState(false);
-  const [boardView, setBoardView] = useState<ChinaBoardView>({ category: 'industry', sort: 'strong', page: 1, query: '', selection: null });
-  const [boardOriginTicker, setBoardOriginTicker] = useState<string | null>(null);
-  const returnToBoard = useRef(false);
-  const [watchSort, setWatchSort] = useState<'manual' | 'change' | 'volume'>('manual');
+  const [settingsSection, setSettingsSection] = useState<'ai' | 'help' | 'data'>('ai');
+  const keyboardEnabled = useKeyboard(state => state.enabled);
+  const openSettings = useCallback(() => { setSettingsSection('ai'); setSettingsOpen(true); }, []);
+  const openBackup = useCallback(() => { setSettingsSection('data'); setSettingsOpen(true); }, []);
+  const closeStory = useCallback(() => setActiveStory(null), []);
+  const [immersive, setImmersive] = useState(entryAtLoad?.location.view === 'overview' && entryAtLoad.location.immersive);
+  const [previewStock, setPreviewStock] = useState<WatchlistStock | null>(() => {
+    if (entryAtLoad) return entryAtLoad.location.stock;
+    if (!route.market) return null;
+    const saved = route.ticker ? watchlist.find(stock => stock.ticker === route.ticker)
+      : watchlist.find(stock => stock.ticker === selectedTicker && stock.market === route.market)
+        ?? watchlist.find(stock => stock.market === route.market);
+    if (saved) return saved.ticker === selectedTicker ? null : saved;
+    return route.ticker ? { ticker: route.ticker, name: route.ticker, market: route.market } : marketBenchmarks[route.market];
+  });
+  const [boardView, setBoardView] = useState<ChinaBoardView>(entryAtLoad?.location.boardView ?? { category: 'industry', sort: 'strong', memberSort: 'strong', page: 1, query: '', selection: null });
+  const [marketOrigin, setMarketOrigin] = useState<MarketOrigin | null>(entryAtLoad?.location.view === 'overview' ? entryAtLoad.location.marketOrigin : null);
+  const returnToMarket = useRef<MarketOrigin | null>(entryAtLoad?.location.view === 'markets' ? entryAtLoad.location.marketOrigin : null);
+  const [restoredEntry, setRestoredEntry] = useState<DeskEntry | null>(entryAtLoad);
+  const pendingScroll = useRef<DeskEntry | null>(entryAtLoad);
+  const restoringScroll = useRef(Boolean(entryAtLoad));
+  const scrollLocation = useRef<string | null>(null);
+  const [watchSort, setWatchSort] = useState(loadWatchSort);
+  const [watchFilter, setWatchFilter] = useState<WatchlistFilter>({ query: '', market: 'ALL' });
+  const [removedStocks, setRemovedStocks] = useState<Array<{ stock: WatchlistStock; index: number }>>([]);
+  const undoableRemovals = removedStocks.filter(item => !watchlist.some(stock => stock.ticker === item.stock.ticker));
+  const lastRemoved = undoableRemovals.at(-1);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const toggleImmersive = useCallback(() => {
     setImmersive(value => !value);
     window.scrollTo(0, 0);
   }, []);
 
-  const selectedStock = watchlist.find((stock) => stock.ticker === selectedTicker) ?? watchlist[0] ?? null;
+  const selectedStock = previewStock ?? watchlist.find((stock) => stock.ticker === selectedTicker) ?? watchlist[0] ?? null;
   const selectedTickerSafe = selectedStock?.ticker ?? null;
+  const activeQuoteTicker = view === 'overview' ? selectedTickerSafe : null;
+  const routeMarket = (view === 'overview' ? selectedStock?.market : undefined) ?? market;
   const activePeriod = periodOptions.find((item) => item.key === period) ?? periodOptions[2];
   const interval = chartMode === 'candles' ? chart.candleInterval : activePeriod.interval;
-  const instrument = useInstrumentData(selectedTickerSafe, period, interval, chartMode === 'candles', view === 'overview', connectionStatus === 'connected');
-  const marketState = useMarketOverview(market, view !== 'news');
-  const newsState = useNewsFeed(view !== 'markets');
-  const search = useStockSearch(searchQuery, market);
-  const liveQuote = selectedTickerSafe ? quotes[selectedTickerSafe] : null;
-  const quote = liveQuote?.snapshot ?? instrument.quoteState.data;
-  const price = liveQuote?.price ?? quote?.price ?? 0;
-  const changePercent = liveQuote?.changePercent ?? quote?.change_percent ?? 0;
-  const previousClose = quote?.previous_close ?? (changePercent !== -100 ? price / (1 + changePercent / 100) : price);
+  const historyPrefetch = useHistoryPrefetch();
+  const cancelHistoryPrefetch = historyPrefetch.cancel;
+  const storedQuote = selectedTickerSafe ? quotes[selectedTickerSafe] : undefined;
+  const instrument = useInstrumentData(selectedTickerSafe, period, interval, chartMode === 'candles', view === 'overview',
+    connectionStatus === 'connected', storedQuote?.streamConfirmedAt);
+  const marketState = useMarketOverview(market, view === 'markets' || view === 'overview');
+  const newsState = useNewsFeed(view === 'overview' || view === 'news', view === 'news' ? newsView.scope ?? 'ALL' : 'ALL');
+  const search = useStockSearch(searchComposing ? '' : searchQuery, market);
+  const response = instrument.quoteState.data;
+  const quoteReceivedAt = instrument.quoteState.savedAt;
+  const quoteFailedAt = instrument.quoteState.failedRequestAt;
+  const httpQuote = useMemo(() => response ? toStoredQuote(response, quoteReceivedAt) : null, [response, quoteReceivedAt]);
+  const liveQuote = httpQuote && httpQuote.snapshot !== storedQuote?.snapshot && !isOlderQuote(httpQuote, storedQuote)
+    ? httpQuote : storedQuote;
+  const displayedHistory = useMemo(() => liveDailyHistory(selectedTickerSafe, instrument.historyMeta, liveQuote),
+    [selectedTickerSafe, instrument.historyMeta, liveQuote]);
+  const quote = liveQuote?.snapshot ?? null;
+  const price = liveQuote?.price ?? 0;
+  const changePercent = liveQuote?.changePercent ?? 0;
+  const previousClose = quote?.previous_close && quote.previous_close > 0 ? quote.previous_close
+    : (changePercent !== -100 ? price / (1 + changePercent / 100) : price);
   const changeValue = price - previousClose;
   const dayOpen = quote?.open_price ?? 0;
   const dayHigh = quote?.high_price ?? 0;
   const dayLow = quote?.low_price ?? 0;
 
-  const sortedWatchlist = watchSort === 'manual'
-    ? watchlist
-    : [...watchlist].sort((left, right) => watchSort === 'change'
-      ? (quotes[right.ticker]?.changePercent ?? 0) - (quotes[left.ticker]?.changePercent ?? 0)
-      : (quotes[right.ticker]?.volume ?? 0) - (quotes[left.ticker]?.volume ?? 0));
+  const agedQuotes = useAgedWatchlistQuotes(watchlist, quotes, watchSort !== 'manual');
+  const sortedWatchlist = useMemo(() => sortWatchlist(watchlist, quotes, watchSort, new Set(agedQuotes.split(','))),
+    [watchlist, quotes, watchSort, agedQuotes]);
+  const visibleWatchlist = useMemo(() => filterWatchlist(sortedWatchlist, quotes, watchFilter), [sortedWatchlist, quotes, watchFilter]);
+
+  useEffect(() => {
+    try { localStorage.setItem(watchSortKey, watchSort); } catch { /* In-memory sorting stays available. */ }
+  }, [watchSort]);
 
   useEffect(() => {
     stockWebSocketService.connect();
@@ -125,32 +200,158 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const url = new URL(window.location.href);
-    url.searchParams.set('view', view);
-    url.searchParams.set('market', market);
-    window.history.replaceState(null, '', url);
-  }, [market, view]);
-  useLayoutEffect(() => {
-    if (view === 'markets' && returnToBoard.current) {
-      returnToBoard.current = false;
-      document.getElementById('cn-board-focus')?.scrollIntoView({ block: 'start' });
-    } else window.scrollTo(0, 0);
-  }, [view]);
+    stockWebSocketService.setActiveTicker(activeQuoteTicker);
+  }, [activeQuoteTicker]);
 
-  useEffect(() => { saveChartSelection(chart); }, [chart]);
+  const previewTicker = previewStock?.ticker;
+  useEffect(() => {
+    if (!previewTicker) return;
+    return () => {
+      if (!useStockStore.getState().watchlist.some(stock => stock.ticker === previewTicker)) {
+        useStockQuoteStore.getState().removeQuote(previewTicker);
+      }
+    };
+  }, [previewTicker]);
+
+  useLayoutEffect(() => {
+    navigation.commit({ view, market: routeMarket, stock: selectedStock, chart, boardView, marketOrigin, immersive, newsView });
+  }, [navigation, view, routeMarket, selectedStock, chart, boardView, marketOrigin, immersive, newsView]);
 
   useEffect(() => {
-    const incoming = instrument.quoteState.data;
-    if (view === 'overview' && incoming) updateQuote(incoming.ticker, toStoredQuote(incoming));
-  }, [instrument.quoteState.data, updateQuote, view]);
+    const previousScrollRestoration = window.history.scrollRestoration;
+    window.history.scrollRestoration = 'manual';
+    const scroll = () => { if (!restoringScroll.current) navigation.recordScroll(window.scrollY); };
+    const flush = () => navigation.flush();
+    const restore = (event: PopStateEvent) => {
+      const entry = navigation.restore(event.state);
+      const linked = readDeskRoute(new URLSearchParams(window.location.search));
+      cancelHistoryPrefetch();
+      setSearchQuery('');
+      setSearchComposing(false);
+      searchRef.current?.blur();
+      setActiveStory(null);
+      setSettingsOpen(false);
+      if (entry) {
+        const location = entry.location;
+        setView(location.view);
+        setMarket(location.market);
+        setPreviewStock(location.stock);
+        setBoardView(location.boardView);
+        setNewsView(normalizeNewsView(location.newsView));
+        setMarketOrigin(location.view === 'overview' ? location.marketOrigin : null);
+        returnToMarket.current = location.view === 'markets' ? location.marketOrigin : null;
+        setImmersive(location.immersive && location.view === 'overview');
+        dispatchChart({ type: 'restore', selection: location.chart });
+        restoringScroll.current = true;
+        pendingScroll.current = entry;
+        setRestoredEntry(entry);
+      } else {
+        // Old bookmarks / entries created before navigation support still follow their URL.
+        const nextMarket = linked.market ?? 'CRYPTO';
+        setView(linked.view);
+        setNewsView(normalizeNewsView(null));
+        setMarket(nextMarket);
+        setPreviewStock(linked.ticker ? { ticker: linked.ticker, name: linked.ticker, market: nextMarket } : marketBenchmarks[nextMarket]);
+        setMarketOrigin(null);
+        returnToMarket.current = null;
+        setImmersive(false);
+        dispatchChart({ type: 'restore', selection: applyLinkedChart(loadChartSelection(), linked.chart) });
+        restoringScroll.current = false;
+        pendingScroll.current = null;
+        setRestoredEntry(null);
+      }
+    };
+    window.addEventListener('popstate', restore);
+    window.addEventListener('scroll', scroll, { passive: true });
+    window.addEventListener('pagehide', flush);
+    return () => {
+      window.removeEventListener('popstate', restore);
+      window.removeEventListener('scroll', scroll);
+      window.removeEventListener('pagehide', flush);
+      window.history.scrollRestoration = previousScrollRestoration;
+    };
+  }, [navigation, cancelHistoryPrefetch]);
+
+  useLayoutEffect(() => {
+    const origin = view === 'markets' ? returnToMarket.current : null;
+    const entry = pendingScroll.current;
+    const savedScroll = entry?.location.view === view && entry.location.market === routeMarket &&
+      (view !== 'overview' || entry.location.stock?.ticker === activeQuoteTicker) ? entry.scroll : null;
+    const location = `${view}:${routeMarket}:${activeQuoteTicker ?? ''}`;
+    if (!origin && savedScroll === null) {
+      pendingScroll.current = null;
+      restoringScroll.current = false;
+      if (scrollLocation.current !== location) window.scrollTo(0, 0);
+      scrollLocation.current = location;
+      return;
+    }
+    scrollLocation.current = location;
+    restoringScroll.current = true;
+    const markets = document.querySelector('.content-canvas');
+    const restore = () => {
+      pendingScroll.current = null;
+      returnToMarket.current = null;
+      const anchor = origin ? document.getElementById(origin.anchorId) : null;
+      if (anchor && origin) {
+        anchor.focus({ preventScroll: true });
+        window.scrollBy(0, anchor.getBoundingClientRect().top - origin.top);
+      } else if (origin?.fromBoard) document.getElementById('cn-board-focus')?.scrollIntoView({ block: 'start' });
+      else window.scrollTo(0, origin?.scroll ?? savedScroll ?? 0);
+      navigation.recordScroll(window.scrollY);
+      restoringScroll.current = false;
+    };
+    const isLoading = () => markets?.matches('[aria-busy="true"]') || markets?.querySelector('[aria-busy="true"]');
+    if (!markets || !isLoading()) { restore(); return; }
+    const cancel = () => {
+      restoringScroll.current = false;
+      observer.disconnect();
+      clearTimeout(timeout);
+      window.removeEventListener('pointerdown', cancelByUser);
+      window.removeEventListener('wheel', cancelByUser);
+      window.removeEventListener('keydown', cancelByUser);
+    };
+    const cancelByUser = () => {
+      pendingScroll.current = null;
+      returnToMarket.current = null;
+      cancel();
+    };
+    const observer = new MutationObserver(() => {
+      if (isLoading()) return;
+      cancel();
+      restore();
+    });
+    const timeout = setTimeout(() => { cancel(); restore(); }, 20000);
+    observer.observe(markets, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-busy'] });
+    window.addEventListener('pointerdown', cancelByUser);
+    window.addEventListener('wheel', cancelByUser, { passive: true });
+    window.addEventListener('keydown', cancelByUser);
+    return cancel;
+  }, [view, routeMarket, activeQuoteTicker, restoredEntry, navigation]);
+
+  useEffect(() => {
+    if (!route.chart || chart !== initialChart.current) saveChartSelection(chart);
+  }, [chart, route.chart]);
+
+  useEffect(() => {
+    if (view !== 'overview') return;
+    const store = useStockQuoteStore.getState();
+    if (response && httpQuote && store.quotes[response.ticker]?.snapshot !== response) updateQuote(response.ticker, httpQuote);
+    if (quoteFailedAt !== undefined && selectedTickerSafe && !instrument.streamHealthy) {
+      store.markQuoteStale(selectedTickerSafe, quoteFailedAt);
+    }
+  }, [response, httpQuote, updateQuote, view, quoteFailedAt, selectedTickerSafe, instrument.streamHealthy]);
 
   const changeMarket = (next: MarketType) => {
+    historyPrefetch.cancel();
     setMarket(next);
     setSearchQuery('');
-    if (view === 'overview' && selectedStock?.market !== next) {
+    if (selectedStock?.market !== next) {
       const stock = watchlist.find(item => item.market === next);
-      if (stock) selectStock(stock.ticker);
-      else searchRef.current?.focus();
+      setMarketOrigin(null);
+      if (stock) {
+        setPreviewStock(null);
+        selectStock(stock.ticker);
+      } else setPreviewStock(marketBenchmarks[next]);
     }
   };
 
@@ -158,19 +359,32 @@ function App() {
     const handleKeyboard = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (event.isComposing || document.querySelector('dialog[open]')) return;
-      const chartOverlay = document.querySelector('.professional-chart.is-expanded, .indicator-menu');
+      if (event.defaultPrevented) return;
+      const typing = Boolean(target?.closest('input, textarea, select, [role="combobox"]') || target?.isContentEditable);
+      if (event.key === 'Escape' && target === searchRef.current) {
+        setSearchQuery('');
+        searchRef.current?.blur();
+        return;
+      }
+      if (event.key === 'Escape' && typing) return;
+      const chartOverlay = document.querySelector('.professional-chart.is-expanded, .indicator-menu, .professional-overflow-menu, .professional-level-editor, .professional-level-list');
       if (event.key === 'Escape' && immersive && !chartOverlay) {
         toggleImmersive();
         return;
       }
-      if (event.defaultPrevented || chartOverlay) return;
-      const typing = Boolean(target?.closest('input, textarea, select, [role="combobox"]') || target?.isContentEditable);
+      if (chartOverlay) return;
       if (event.key === 'Escape') {
         setSearchQuery('');
         searchRef.current?.blur();
         return;
       }
-      if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (typing || !keyboardEnabled || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key === '?') {
+        event.preventDefault();
+        setSettingsSection('help');
+        setSettingsOpen(true);
+        return;
+      }
       if (event.key.toLowerCase() === 'f' && !event.repeat && view === 'overview' && selectedTickerSafe) {
         event.preventDefault();
         toggleImmersive();
@@ -182,13 +396,18 @@ function App() {
       if (event.key === '1') setView('overview');
       if (event.key === '2') { setImmersive(false); setView('markets'); }
       if (event.key === '3') { setImmersive(false); setView('news'); }
-      if ((event.key.toLowerCase() === 'j' || event.key.toLowerCase() === 'k') && sortedWatchlist.length) {
+      if (event.key === '4') { setImmersive(false); setView('strategy'); }
+      if (event.key === '5') { setImmersive(false); setView('simulation'); }
+      if ((event.key.toLowerCase() === 'j' || event.key.toLowerCase() === 'k') && visibleWatchlist.length) {
         event.preventDefault();
-        const current = Math.max(0, sortedWatchlist.findIndex((item) => item.ticker === selectedTicker));
+        const current = visibleWatchlist.findIndex((item) => item.ticker === selectedTickerSafe);
         const offset = event.key.toLowerCase() === 'j' ? 1 : -1;
-        const stock = sortedWatchlist[(current + offset + sortedWatchlist.length) % sortedWatchlist.length];
+        const index = current < 0 ? (offset > 0 ? 0 : visibleWatchlist.length - 1)
+          : (current + offset + visibleWatchlist.length) % visibleWatchlist.length;
+        const stock = visibleWatchlist[index];
+        setPreviewStock(null);
         selectStock(stock.ticker);
-        setBoardOriginTicker(null);
+        setMarketOrigin(null);
         setMarket(stock.market);
         setSearchQuery('');
         setView('overview');
@@ -196,59 +415,110 @@ function App() {
     };
     window.addEventListener('keydown', handleKeyboard);
     return () => window.removeEventListener('keydown', handleKeyboard);
-  }, [immersive, selectStock, selectedTicker, selectedTickerSafe, sortedWatchlist, toggleImmersive, view]);
+  }, [immersive, keyboardEnabled, selectStock, selectedTickerSafe, visibleWatchlist, toggleImmersive, view]);
 
-  const openInstrument = (ticker: string, name: string, nextMarket: MarketType, seed = { price: 0, changePercent: 0, volume: 0 }) => {
-    addToWatchlist({ ticker, name, market: nextMarket, ...seed });
-    selectStock(ticker);
-    setBoardOriginTicker(null);
-    setMarket(nextMarket);
+  const openInstrument = (stock: WatchlistStock, seed?: StockQuote) => {
+    historyPrefetch.cancel();
+    if (seed) useStockQuoteStore.getState().seedQuote(stock.ticker, seed);
+    if (watchlist.some(item => item.ticker === stock.ticker)) {
+      selectStock(stock.ticker);
+      setPreviewStock(null);
+    } else {
+      setPreviewStock(stock);
+    }
+    setMarketOrigin(null);
+    setMarket(stock.market);
     setSearchQuery('');
     searchRef.current?.blur();
-    if (view === 'overview') window.scrollTo(0, 0);
     setView('overview');
   };
 
-  const selectMarketRow = (row: HotspotRow, fromBoard = false) => {
-    openInstrument(row.ticker, row.name, market, {
-      price: row.price,
-      changePercent: row.change_percent,
-      volume: row.volume,
-    });
-    if (fromBoard) setBoardOriginTicker(row.ticker);
+  const addPreviewToWatchlist = () => {
+    if (!previewStock) return;
+    addToWatchlist({ ...previewStock, name: quote?.name || previewStock.name, price, changePercent, volume: liveQuote?.volume ?? 0 });
+    selectStock(previewStock.ticker);
+    setPreviewStock(null);
   };
 
-  const backToBoard = () => {
-    returnToBoard.current = true;
+  const selectMarketRow = (row: ChinaBoardMember, anchor: HTMLButtonElement, fromBoard = false) => {
+    const origin = view === 'markets' ? {
+      ticker: row.ticker, market, anchorId: anchor.id, top: anchor.getBoundingClientRect().top, scroll: window.scrollY, fromBoard,
+    } : null;
+    openInstrument({ ticker: row.ticker, name: row.name, market }, row.price !== null && row.change_percent !== null && row.volume !== null ? {
+      price: row.price, changePercent: row.change_percent, volume: row.volume,
+    } : undefined);
+    if (origin) setMarketOrigin(origin);
+  };
+
+  const backToMarket = () => {
+    if (!marketOrigin) return;
+    if (navigation.canReturnToMarket(marketOrigin)) { window.history.back(); return; }
+    returnToMarket.current = marketOrigin;
+    setMarketOrigin(null);
     setImmersive(false);
-    setMarket('CN');
+    setMarket(marketOrigin.market);
     setView('markets');
   };
 
-  const openStory = (item: NewsItem) => {
-    if (item.url && /^https?:\/\//i.test(item.url)) window.open(item.url, '_blank', 'noopener,noreferrer');
-    else setActiveStory(item);
-  };
+  const openStory = useCallback((item: NewsItem) => {
+    markNewsRead(item);
+    setActiveStory(item);
+  }, []);
 
   return (
     <div className={`app-shell${immersive ? ' is-immersive' : ''}`}>
+      <a className="skip-link" href="#main-content" onClick={event => {
+        event.preventDefault();
+        const main = document.getElementById('main-content');
+        main?.focus({ preventScroll: true });
+        main?.scrollIntoView({ block: 'start', behavior: 'instant' });
+      }}>{t('跳到主内容')}</a>
+      <WatchlistQuoteFallback watchlist={watchlist} activeTicker={activeQuoteTicker} connected={connectionStatus === 'connected'} />
       <Sidebar
         view={view}
         setView={setView}
-        watchlist={sortedWatchlist}
+        watchlist={visibleWatchlist}
+        totalStocks={watchlist.length}
+        filter={watchFilter}
+        setFilter={setWatchFilter}
         selectedTicker={selectedTickerSafe}
         quotes={quotes}
         connectionStatus={connectionStatus}
+        online={online}
         watchSort={watchSort}
         setWatchSort={setWatchSort}
+        previewHistory={ticker => {
+          if (ticker !== selectedTickerSafe || view !== 'overview') historyPrefetch.schedule(ticker, period, interval, chartMode === 'candles');
+        }}
+        cancelHistoryPreview={historyPrefetch.cancel}
+        onSearch={() => searchRef.current?.focus()}
+        onBackup={openBackup}
+        removedTicker={lastRemoved?.stock.ticker ?? null}
+        undoRemoval={() => {
+          if (!lastRemoved) return;
+          useStockStore.getState().restoreToWatchlist(lastRemoved.stock, lastRemoved.index);
+          setRemovedStocks(undoableRemovals.slice(0, -1));
+        }}
+        dismissRemoval={() => setRemovedStocks([])}
         selectStock={(stock) => {
+          setPreviewStock(null);
           selectStock(stock.ticker);
-          setBoardOriginTicker(null);
+          setMarketOrigin(null);
           setMarket(stock.market);
           setSearchQuery('');
           setView('overview');
         }}
-        removeFromWatchlist={removeFromWatchlist}
+        removeFromWatchlist={ticker => {
+          const index = watchlist.findIndex(stock => stock.ticker === ticker);
+          if (index < 0) return;
+          setRemovedStocks([...undoableRemovals, { stock: watchlist[index], index }]);
+          const keepOpen = selectedStock?.ticker === ticker;
+          const currentQuote = useStockQuoteStore.getState().quotes[ticker];
+          if (keepOpen) setPreviewStock(selectedStock);
+          removeFromWatchlist(ticker);
+          // A list removal keeps the active chart subscribed, including its newest streamed quote.
+          if (keepOpen && currentQuote) updateQuote(ticker, currentQuote);
+        }}
       />
 
       <div className="app-main">
@@ -257,16 +527,20 @@ function App() {
           setMarket={changeMarket}
           searchQuery={searchQuery}
           setSearchQuery={setSearchQuery}
+          searchComposing={searchComposing}
+          setSearchComposing={setSearchComposing}
           searchRef={searchRef}
           search={search}
-          onSelect={(ticker, name) => openInstrument(ticker, name, market)}
-          onSettings={() => setSettingsOpen(true)}
+          onSelect={(ticker, name) => openInstrument({ ticker, name, market })}
+          onSettings={openSettings}
         />
 
-        <main className="content-canvas">
-          {connectionStatus === 'disconnected' && <div className="connection-banner" role="status">{t("重新连接中")}</div>}
+        <main id="main-content" className="content-canvas" tabIndex={-1} aria-busy={view === 'overview' ? instrument.historyState.loading && !displayedHistory?.data.length
+          : view === 'news' ? newsState.loading && !newsState.data : view === 'markets' && marketState.loading && !marketState.data}>
+          {(!online || connectionStatus === 'disconnected') && <div className="connection-banner" data-online={online} role="status">{t(online ? '行情重连中' : '当前离线')}</div>}
           {view === 'overview' && (
             <Overview
+              shortcutsEnabled={keyboardEnabled}
               immersive={immersive}
               onToggleImmersive={toggleImmersive}
               selectedStock={selectedStock}
@@ -277,37 +551,49 @@ function App() {
               dayHigh={dayHigh}
               dayLow={dayLow}
               volume={quote?.volume ?? liveQuote?.volume ?? 0}
-              amount={quote?.amount ?? 0}
+              amount={quote?.amount ?? null}
               turnoverRate={quote?.turnover_rate ?? null}
               quoteDetails={quote}
               period={period}
               setPeriod={period => dispatchChart({ type: 'period', period })}
+              previewPeriod={item => {
+                if (selectedTickerSafe && item.key !== period) {
+                  historyPrefetch.schedule(selectedTickerSafe, item.key, chartMode === 'candles' ? interval : item.interval, chartMode === 'candles');
+                }
+              }}
+              cancelHistoryPreview={historyPrefetch.cancel}
               chartMode={chartMode}
               setChartMode={mode => dispatchChart({ type: 'mode', mode })}
               candleInterval={chart.candleInterval}
               setCandleInterval={interval => dispatchChart({ type: 'interval', interval })}
               interval={interval}
-              onSettings={() => setSettingsOpen(true)}
-              history={instrument.historyState.data ?? []}
+              onSettings={openSettings}
+              history={displayedHistory?.data ?? []}
               indicatorHistory={instrument.indicatorHistory}
               historyLoading={instrument.historyState.loading}
               quoteError={instrument.quoteState.error}
+              quoteRetry={instrument.quoteState.retry}
+              quoteLoading={instrument.quoteState.loading}
               historyError={instrument.historyState.error}
-              historyStale={instrument.historyStale}
-              historyMeta={instrument.historyMeta}
+              historyRetry={instrument.historyState.retry}
+              historyStale={displayedHistory?.stale ?? instrument.historyStale}
+              historyMeta={displayedHistory}
               source={liveQuote?.source ?? quote?.source ?? null}
               asOf={liveQuote?.asOf ?? quote?.as_of ?? null}
-              stale={liveQuote?.stale ?? quote?.stale ?? false}
+              liveQuote={liveQuote}
               marketData={marketState.data}
               marketLoading={marketState.loading}
               news={newsState.data?.items ?? []}
               newsLoading={newsState.loading}
               newsError={newsState.error}
+              newsRetry={newsState.retry}
+              newsStale={newsState.data?.stale ?? false}
               onOpenStory={openStory}
               onSelectMarket={selectMarketRow}
               openMarkets={() => setView('markets')}
               openNews={() => setView('news')}
-              onBackToBoard={boardOriginTicker && boardOriginTicker === selectedTickerSafe ? backToBoard : undefined}
+              marketBack={marketOrigin && marketOrigin.ticker === selectedTickerSafe ? { fromBoard: marketOrigin.fromBoard, onBack: backToMarket } : undefined}
+              onAddToWatchlist={previewStock && !watchlist.some(stock => stock.ticker === previewTicker) ? addPreviewToWatchlist : undefined}
             />
           )}
           {view === 'markets' && (
@@ -317,46 +603,70 @@ function App() {
               data={marketState.data}
               loading={marketState.loading}
               error={marketState.error}
+              onRetry={marketState.retry}
               onSelect={selectMarketRow}
+              prefetch={ticker => historyPrefetch.schedule(ticker, period, interval, chartMode === 'candles')}
+              cancelPrefetch={historyPrefetch.cancel}
               boardView={boardView}
               onBoardViewChange={setBoardView}
             />
           )}
+          {view === 'simulation' && <SimulationView stock={selectedStock} watchlist={watchlist} onStrategy={() => setView('strategy')} onSettings={openSettings} />}
+          {view === 'strategy' && <StrategyLab stock={selectedStock} watchlist={watchlist} onSettings={openSettings} onSimulation={() => setView('simulation')} />}
           {view === 'news' && (
-            <Intelligence data={newsState.data?.items ?? []} loading={newsState.loading} error={newsState.error} onOpenStory={openStory} market={market} onSettings={() => setSettingsOpen(true)} />
+            <NewsDesk feed={newsState.data} loading={newsState.loading} error={newsState.error} onRetry={newsState.retry} onOpenStory={openStory} onOpenTicker={ticker=>openInstrument(watchlist.find(s=>s.ticker===ticker)??{ticker,name:ticker.replace(/USDT$/,'')+' / USDT',market:'CRYPTO'})} onSettings={openSettings} filters={newsView} onFiltersChange={setNewsView} />
           )}
         </main>
       </div>
-      {activeStory && <NewsDialog item={activeStory} onClose={() => setActiveStory(null)} />}
-      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} />}
+      {!immersive && <BackToTop />}
+      {activeStory && <NewsDialog item={activeStory} onClose={closeStory} onOpenTicker={ticker=>{setActiveStory(null);openInstrument(watchlist.find(s=>s.ticker===ticker)??{ticker,name:ticker.replace(/USDT$/,'')+' / USDT',market:'CRYPTO'});}} />}
+      {settingsOpen && <SettingsDialog onClose={() => setSettingsOpen(false)} initialSection={settingsSection} />}
     </div>
   );
 }
 
 type SidebarProps = {
+  online: boolean;
+  totalStocks: number;
+  filter: WatchlistFilter;
+  setFilter: (filter: WatchlistFilter) => void;
   view: DeskView;
   setView: (view: DeskView) => void;
   watchlist: Array<{ ticker: string; name: string; market: MarketType }>;
   selectedTicker: string | null;
   quotes: Record<string, StockQuote>;
   connectionStatus: 'connecting' | 'connected' | 'disconnected';
-  watchSort: 'manual' | 'change' | 'volume';
-  setWatchSort: (sort: 'manual' | 'change' | 'volume') => void;
+  watchSort: WatchSort;
+  setWatchSort: (sort: WatchSort) => void;
+  previewHistory: (ticker: string) => void;
+  cancelHistoryPreview: () => void;
   selectStock: (stock: SidebarProps['watchlist'][number]) => void;
   removeFromWatchlist: (ticker: string) => void;
+  onSearch: () => void;
+  onBackup: () => void;
+  removedTicker: string | null;
+  undoRemoval: () => void;
+  dismissRemoval: () => void;
 };
 
 function Sidebar(props: SidebarProps) {
+  const storageIssue = useWatchlistStorage(state => state.issue);
   const watchItems = useRef<HTMLDivElement>(null);
+  const byChange = props.watchSort !== 'manual';
+  const risingFirst = props.watchSort === 'change-desc';
+  const hasSelectedWatchItem = props.watchlist.some(stock => stock.ticker === props.selectedTicker);
   useEffect(() => {
+    if (!hasSelectedWatchItem) return;
     const list = watchItems.current;
     const selected = list?.querySelector('.watch-item.active');
-    if (!list || !selected || list.scrollWidth <= list.clientWidth) return;
+    if (!list || !selected) return;
     const bounds = list.getBoundingClientRect();
     const card = selected.getBoundingClientRect();
     if (card.left < bounds.left) list.scrollLeft += card.left - bounds.left;
     else if (card.right > bounds.right) list.scrollLeft += card.right - bounds.right;
-  }, [props.selectedTicker, props.watchSort]);
+    if (card.top < bounds.top) list.scrollTop += card.top - bounds.top;
+    else if (card.bottom > bounds.bottom) list.scrollTop += card.bottom - bounds.bottom;
+  }, [props.selectedTicker, props.watchSort, hasSelectedWatchItem, props.filter.query, props.filter.market]);
 
   return (
     <aside className="sidebar">
@@ -367,7 +677,7 @@ function Sidebar(props: SidebarProps) {
 
       <nav className="primary-nav" aria-label={t("主导航")}>
         {navItems.map((item) => (
-          <button key={item.id} type="button" className={props.view === item.id ? 'active' : ''} onClick={() => props.setView(item.id)}>
+          <button key={item.id} type="button" className={props.view === item.id ? 'active' : ''} aria-current={props.view === item.id ? 'page' : undefined} onClick={() => props.setView(item.id)}>
             <Icon name={item.icon} />
             <span><strong>{t(item.label)}</strong></span>
           </button>
@@ -378,11 +688,37 @@ function Sidebar(props: SidebarProps) {
         <header>
           <div><strong>{t("自选")}</strong></div>
           <div className="watch-sort">
-            <button className={props.watchSort === 'manual' ? 'active' : ''} onClick={() => props.setWatchSort('manual')}>{t("默认")}</button>
-            <button className={props.watchSort === 'change' ? 'active' : ''} onClick={() => props.setWatchSort('change')}>{t("涨幅")}</button>
+            <button type="button" className={!byChange ? 'active' : ''} aria-pressed={!byChange} onClick={() => props.setWatchSort('manual')}>{t("默认")}</button>
+            <button type="button" className={byChange ? 'active' : ''} aria-pressed={byChange}
+              aria-label={t(byChange ? (risingFirst ? '涨跌幅从高到低' : '涨跌幅从低到高') : '按涨跌幅排序')}
+              onClick={() => props.setWatchSort(risingFirst ? 'change-asc' : 'change-desc')}>
+              {t("涨幅")}{byChange && <span aria-hidden="true"> {risingFirst ? '↓' : '↑'}</span>}
+            </button>
           </div>
         </header>
+        <div className="watch-filters">
+          <div className="watch-filter-query">
+            <input type="search" aria-label={t('筛选自选股')} placeholder={t('代码或名称')} maxLength={100} value={props.filter.query}
+              onChange={event => props.setFilter({ ...props.filter, query: event.target.value })} autoComplete="off" spellCheck={false} />
+          </div>
+          <select aria-label={t('自选市场')} value={props.filter.market} onChange={event => props.setFilter({ ...props.filter, market: event.target.value as WatchlistFilter['market'] })}>
+            <option value="ALL">USDT现货</option>
+          </select>
+        </div>
+        <div className="watch-filter-meta">
+          <small role="status">{t('{visible} / {total} 只', { visible: props.watchlist.length, total: props.totalStocks })}</small>
+          {(props.filter.query || props.filter.market !== 'ALL') && <button type="button" onClick={() => props.setFilter({ query: '', market: 'ALL' })}>{t('清除自选筛选')}</button>}
+        </div>
+        {storageIssue && <div className="watch-storage-notice">
+          <p role="status">{t(storageIssue === 'write' ? '自选更改暂未保存，刷新前可导出备份。' : '无法读取保存的自选，可在此导入备份。')}</p>
+          <button type="button" onClick={props.onBackup}>{t('自选备份')}</button>
+        </div>}
         <div className="watch-items" ref={watchItems}>
+          {!props.watchlist.length && props.totalStocks > 0 && <div className="watch-empty"><p>{t('没有匹配的自选股')}</p></div>}
+          {!props.totalStocks && <div className="watch-empty">
+            <p>{t("暂无自选股")}</p>
+            <button type="button" onClick={props.onSearch}>{t("搜索并添加股票")} <Icon name="plus" /></button>
+          </div>}
           {props.watchlist.map((stock) => {
             const quote = props.quotes[stock.ticker];
             const name = quote?.snapshot?.name || stock.name;
@@ -390,9 +726,14 @@ function Sidebar(props: SidebarProps) {
             const turnover = quote?.snapshot?.turnover_rate;
             return (
               <div key={stock.ticker} className={`watch-item${props.selectedTicker === stock.ticker ? ' active' : ''}`}>
-                <button type="button" className="watch-select" aria-pressed={props.selectedTicker === stock.ticker} onClick={() => props.selectStock(stock)}>
+                <button type="button" className="watch-select" aria-pressed={props.selectedTicker === stock.ticker}
+                  onPointerEnter={event => { if (event.pointerType === 'mouse') props.previewHistory(stock.ticker); }}
+                  onPointerLeave={props.cancelHistoryPreview} onClick={() => { props.cancelHistoryPreview(); props.selectStock(stock); }}>
                   <span className="watch-name"><strong>{stock.ticker}</strong><small title={name}>{isChinaIndex(stock.ticker) ? t(name) : name}</small></span>
-                  <span className="watch-value"><strong>{quote ? formatPrice(quote.price, stock.market, stock.ticker) : '--'}</strong>{quote ? <Delta value={quote.changePercent} /> : <small>{t("等待报价")}</small>}</span>
+                  <span className="watch-value"><strong>{quote ? formatPrice(quote.price, stock.market, stock.ticker) : '--'}</strong>
+                    {quote ? <Delta value={quote.changePercent} /> : <small>{t("等待报价")}</small>}
+                    {quote && <QuoteFreshnessBadge ticker={stock.ticker} quote={quote} />}
+                  </span>
                   {stock.market === 'CN' && <span className="watch-context">
                     <StockTags ticker={stock.ticker} name={name} variant="watch" />
                     {amount != null && amount > 0 ? <small title={t("成交额")}>¥{formatCompact(amount)}</small>
@@ -404,10 +745,15 @@ function Sidebar(props: SidebarProps) {
             );
           })}
         </div>
+        {props.removedTicker && <div className="watch-undo">
+          <span role="status" key={props.removedTicker}>{t("已移除 {ticker}", { ticker: props.removedTicker })}</span>
+          <button type="button" onClick={props.undoRemoval}>{t("撤销移除")}</button>
+          <button type="button" className="watch-undo-dismiss" aria-label={t("关闭移除提示")} onClick={props.dismissRemoval}>×</button>
+        </div>}
       </section>
 
       <footer className="sidebar-footer">
-        <span data-status={props.connectionStatus}><i /> {props.connectionStatus === 'connected' ? t("已连接") : props.connectionStatus === 'connecting' ? t("连接中") : t("重新连接中")}</span>
+        <span data-status={props.connectionStatus} data-online={props.online}><i /> {!props.online ? t('离线') : props.connectionStatus === 'connected' ? t("已连接") : props.connectionStatus === 'connecting' ? t("连接中") : t("重新连接中")}</span>
       </footer>
     </aside>
   );
@@ -419,45 +765,76 @@ type TopbarProps = {
   setMarket: (market: MarketType) => void;
   searchQuery: string;
   setSearchQuery: (query: string) => void;
+  searchComposing: boolean;
+  setSearchComposing: (composing: boolean) => void;
   searchRef: React.RefObject<HTMLInputElement | null>;
-  search: { results: Array<{ ticker: string; name: string }>; loading: boolean; error: string | null };
+  search: { results: Array<{ ticker: string; name: string }>; loading: boolean; error: string | null; retry: () => void };
   onSelect: (ticker: string, name: string) => void;
 };
 
 function Topbar({ searchRef, ...props }: TopbarProps) {
+  const online = useOnlineStatus();
   const [selection, setSelection] = useState({ key: '', index: 0 });
+  const resultsRef = useRef<HTMLDivElement>(null);
   const searchKey = `${props.market}:${props.searchQuery}`;
-  const searchOpen = Boolean(props.searchQuery.trim());
+  const searchOpen = !props.searchComposing && Boolean(props.searchQuery.trim());
   const activeIndex = selection.key === searchKey ? Math.min(selection.index, Math.max(props.search.results.length - 1, 0)) : 0;
+  const moveSelection = (index: number) => {
+    setSelection({ key: searchKey, index });
+    const popup = resultsRef.current;
+    const option = document.getElementById(`stock-option-${index}`);
+    if (!popup || !option) return;
+    const bounds = option.getBoundingClientRect();
+    const top = popup.getBoundingClientRect().top + popup.clientTop;
+    const bottom = top + popup.clientHeight;
+    if (bounds.top < top) popup.scrollTop += bounds.top - top;
+    else if (bounds.bottom > bottom) popup.scrollTop += bounds.bottom - bottom;
+  };
   return (
     <header className="topbar">
       <div className="market-context">
         <div role="group" aria-label={t("市场")}>
-          <button type="button" className={props.market === 'US' ? 'active' : ''} aria-pressed={props.market === 'US'} onClick={() => props.setMarket('US')}>{t("美股")}</button>
-          <button type="button" className={props.market === 'CN' ? 'active' : ''} aria-pressed={props.market === 'CN'} onClick={() => props.setMarket('CN')}>{t("A 股")}</button>
+          <button type="button" className="active" aria-pressed="true" onClick={() => props.setMarket('CRYPTO')}>虚拟币</button>
         </div>
       </div>
 
       <div className="command-search" onBlur={event => {
-        if (!event.currentTarget.contains(event.relatedTarget)) props.setSearchQuery('');
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          props.setSearchComposing(false);
+          props.setSearchQuery('');
+        }
       }}>
         <Icon name="search" />
         <input
           ref={searchRef}
           value={props.searchQuery}
           onChange={(event) => props.setSearchQuery(event.target.value)}
-          placeholder={t("搜索股票")}
-          aria-label={t("搜索股票")}
+          onCompositionStart={() => props.setSearchComposing(true)}
+          onCompositionEnd={event => {
+            props.setSearchQuery(event.currentTarget.value);
+            props.setSearchComposing(false);
+          }}
+          placeholder={t("搜索币种 / USDT交易对")}
+          aria-label={t("搜索币种 / USDT交易对")}
           role="combobox"
+          aria-autocomplete="list"
           aria-expanded={searchOpen}
           aria-controls={searchOpen ? 'stock-search-results' : undefined}
           aria-activedescendant={searchOpen && props.search.results[activeIndex] ? `stock-option-${activeIndex}` : undefined}
           autoComplete="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          enterKeyHint="search"
+          maxLength={100}
           onKeyDown={(event) => {
+            if (props.searchComposing || event.nativeEvent.isComposing || event.keyCode === 229) {
+              event.stopPropagation();
+              return;
+            }
             if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && props.search.results.length) {
               event.preventDefault();
               const offset = event.key === 'ArrowDown' ? 1 : -1;
-              setSelection({ key: searchKey, index: (activeIndex + offset + props.search.results.length) % props.search.results.length });
+              moveSelection((activeIndex + offset + props.search.results.length) % props.search.results.length);
             }
             if (event.key === 'Enter' && props.search.results[activeIndex]) {
               event.preventDefault();
@@ -466,18 +843,28 @@ function Topbar({ searchRef, ...props }: TopbarProps) {
             }
           }}
         />
+        {props.searchQuery && !props.searchComposing && <button type="button" className="search-clear" aria-label={t("清空搜索")}
+          onClick={() => {
+            props.setSearchQuery('');
+            searchRef.current?.focus();
+          }}>×</button>}
         {searchOpen && (
-          <div id="stock-search-results" className="search-results" role="listbox" aria-label={t("股票搜索结果")}>
+          <div ref={resultsRef} className="search-results">
             <header><span>{t("搜索结果")}</span><small>{props.search.loading ? t("正在检索") : t("{count} 个结果", { count: props.search.results.length })}</small></header>
+            <div id="stock-search-results" className="search-options" role="listbox" aria-label={t("股票搜索结果")}>
             {props.search.results.map((result, index) => (
-              <button id={`stock-option-${index}`} key={result.ticker} role="option" aria-selected={activeIndex === index} type="button" onMouseDown={event => event.preventDefault()} onMouseEnter={() => setSelection({ key: searchKey, index })} onClick={() => props.onSelect(result.ticker, result.name)}>
-                <span className="result-monogram">{result.ticker.slice(0, 2)}</span>
+              <button id={`stock-option-${index}`} key={result.ticker} role="option" aria-selected={activeIndex === index} type="button" tabIndex={-1}
+                onMouseDown={event => event.preventDefault()} onMouseMove={() => { if (activeIndex !== index) setSelection({ key: searchKey, index }); }}
+                onClick={() => props.onSelect(result.ticker, result.name)}>
                 <span><strong>{result.ticker}</strong><small>{isChinaIndex(result.ticker) ? t(result.name) : result.name} <StockTags ticker={result.ticker} name={result.name} /></small></span>
-                <Icon name="plus" />
+                <Icon name="arrow" />
               </button>
             ))}
-            {props.search.error && <p role="status">{t(props.search.error)}</p>}
-            {!props.search.loading && !props.search.error && !props.search.results.length && <p>{t("没有找到匹配标的")}</p>}
+            </div>
+            {props.search.loading && <p role="status">{t("正在检索")}</p>}
+            {props.search.error && <div className="search-feedback"><p role="status">{t(props.search.error)}</p>
+              <button type="button" disabled={!online} onClick={() => { props.search.retry(); searchRef.current?.focus(); }}>{t(online ? "重新搜索" : '等待网络')}</button></div>}
+            {!props.search.loading && !props.search.error && !props.search.results.length && <p role="status">{t("没有找到匹配标的")}</p>}
           </div>
         )}
       </div>
@@ -487,6 +874,7 @@ function Topbar({ searchRef, ...props }: TopbarProps) {
 }
 
 type OverviewProps = {
+  shortcutsEnabled: boolean;
   onSettings: () => void;
   immersive: boolean;
   onToggleImmersive: () => void;
@@ -499,11 +887,13 @@ type OverviewProps = {
   dayHigh: number;
   dayLow: number;
   volume: number;
-  amount: number;
+  amount: number | null;
   turnoverRate: number | null;
   quoteDetails: Quote | null;
   period: PeriodKey;
   setPeriod: (period: PeriodKey) => void;
+  previewPeriod: (item: (typeof periodOptions)[number]) => void;
+  cancelHistoryPreview: () => void;
   chartMode: ChartMode;
   setChartMode: (mode: ChartMode) => void;
   candleInterval: CandleInterval;
@@ -512,27 +902,34 @@ type OverviewProps = {
   indicatorHistory: Parameters<typeof MarketChart>[0]['data'];
   historyLoading: boolean;
   quoteError: string | null;
+  quoteRetry: () => void;
+  quoteLoading: boolean;
   historyError: string | null;
+  historyRetry: () => void;
   historyStale: boolean;
   historyMeta: ReturnType<typeof useInstrumentData>['historyMeta'];
   source: string | null;
   asOf: string | null;
-  stale: boolean;
+  liveQuote?: StockQuote;
   marketData: ReturnType<typeof useMarketOverview>['data'];
   marketLoading: boolean;
   news: NewsItem[];
   newsLoading: boolean;
   newsError: string | null;
+  newsRetry: () => void;
+  newsStale: boolean;
   onOpenStory: (item: NewsItem) => void;
-  onSelectMarket: (row: HotspotRow) => void;
+  onSelectMarket: (row: HotspotRow, anchor: HTMLButtonElement) => void;
   openMarkets: () => void;
   openNews: () => void;
-  onBackToBoard?: () => void;
+  marketBack?: { fromBoard: boolean; onBack: () => void };
+  onAddToWatchlist?: () => void;
 };
 
 function Overview(props: OverviewProps) {
   const { chartMode, setChartMode } = props;
   const intraday = props.period === '1d' || props.period === '5d';
+  const visiblePeriods = periodOptions.filter(item => chartMode === 'line' || candlePeriodAllowed(props.candleInterval, item.key));
   const { profiles, activeId } = useAiProfiles();
   const profile = profiles.find(p => p.id === activeId);
   const analysis = useAnalysis(`chart:${props.selectedStock?.ticker}:${props.period}:${props.interval}:${chartMode}`, profile);
@@ -542,44 +939,47 @@ function Overview(props: OverviewProps) {
     if (analysis.result) setSelection({ result: analysis.result, id });
   }, [analysis.result]);
   const chartData = props.history.length > 0 ? props.history : analysis.result?.data ?? props.history;
-  const { chartAnnotations, trendlines } = useMemo(() => {
-    const indexByTime = new Map(chartData.map((bar, index) => [Date.parse(bar.timestamp), index]));
-    return {
-      chartAnnotations: (analysis.result?.annotations ?? []).flatMap(point => {
-        const index = indexByTime.get(Date.parse(point.timestamp));
-        return index === undefined ? [] : [{ ...point, index, timestamp: chartData[index].timestamp }];
-      }),
-      trendlines: (analysis.result?.trendlines ?? []).flatMap(line => {
-        const startIndex = indexByTime.get(Date.parse(line.start.timestamp));
-        const endIndex = indexByTime.get(Date.parse(line.end.timestamp));
-        return startIndex === undefined || endIndex === undefined || startIndex >= endIndex ? [] : [{ ...line, startIndex, endIndex }];
-      }),
-    };
-  }, [analysis.result, chartData]);
+  const { chartAnnotations, trendlines } = useMemo(() => plotAnalysis(analysis.result, chartData, props.historyMeta), [analysis.result, chartData, props.historyMeta]);
+  const plottedPoints = useMemo(() => new Set(chartAnnotations.map(point => point.id)), [chartAnnotations]);
   if (!props.selectedStock) {
     return <section className="empty-state"><h1>{t("暂无自选股")}</h1><p>{t("搜索并添加股票")}</p></section>;
   }
 
   const stock = props.selectedStock;
   const stockName = props.quoteDetails?.name || stock.name;
-  const positive = props.changePercent >= 0;
+  const tone = changeTone(props.changePercent);
   const digits = pricePrecision(stock.ticker, props.price);
+  const runChartAnalysis = () => analysis.run({
+    scope: 'chart', ticker: stock.ticker, market: stock.market, period: props.period, interval: props.interval, chart_type: chartMode,
+    chart_history: props.history.length >= 2 ? {
+      data: props.history, source: props.historyMeta?.source, price_type: props.historyMeta?.price_type,
+      adjustment: props.historyMeta?.adjustment, stale: props.historyStale,
+      indicators: analysisIndicatorValues(props.history, props.indicatorHistory,
+        (!intraday || chartMode === 'candles') && props.historyMeta?.price_type !== 'snapshot'),
+    } : undefined,
+  });
 
   return (
     <div className="overview">
       <header className="instrument-hero">
         <div className="instrument-title">
-          {props.onBackToBoard && <button type="button" className="board-back" onClick={props.onBackToBoard}><Icon name="arrow" />{t('返回板块')}</button>}
+          {props.marketBack && <button type="button" className="board-back" onClick={props.marketBack.onBack}><Icon name="arrow" />{t(props.marketBack.fromBoard ? '返回板块' : '返回市场')}</button>}
           <h1>{isChinaIndex(stock.ticker) ? t(stockName) : stockName}</h1>
-          <div><strong>{stock.ticker}</strong><StockTags key={stock.ticker} ticker={stock.ticker} name={stockName} variant="detail" /><MarketClock ticker={stock.ticker} asOf={props.asOf} source={props.source} />{stock.market === 'US' && <small className="quote-tag">{t("延时")}</small>}{props.stale && <small className="quote-tag">{t("缓存")}</small>}</div>
+          <div>
+            <strong>{stock.ticker}</strong>{stock.market === 'CRYPTO' && <small className="quote-tag">USDT · 现货 · 24h</small>}<StockTags key={stock.ticker} ticker={stock.ticker} name={stockName} variant="detail" />
+            <MarketClock ticker={stock.ticker} asOf={props.asOf} source={props.source} />
+            {stock.market === 'US' && <small className="quote-tag">{t("延时")}</small>}
+            <QuoteFreshnessBadge ticker={stock.ticker} quote={props.liveQuote} />
+            {props.onAddToWatchlist && <button type="button" className="watch-add" onClick={props.onAddToWatchlist}><Icon name="plus" />{t('加入自选')}</button>}
+          </div>
         </div>
         <div className="hero-quote">
           <strong>{props.price > 0 ? formatPrice(props.price, stock.market, stock.ticker) : '--'}</strong>
-          {props.price > 0 && <div className={positive ? 'positive' : 'negative'}><span>{formatSigned(props.changeValue, digits)}</span><span>{formatSigned(props.changePercent)}%</span></div>}
+          {props.price > 0 && <div className={tone}><span>{formatSigned(props.changeValue, digits)}</span><span>{formatSigned(props.changePercent)}%</span></div>}
         </div>
       </header>
 
-      {props.quoteError && props.price <= 0 && <div role="status" className="error-banner">{t("行情暂不可用")}</div>}
+      {props.price <= 0 && <ResourceError error={props.quoteError} loading={props.quoteLoading} onRetry={props.quoteRetry} label="重试行情" />}
 
       <div className="overview-layout">
         <section className="chart-card surface">
@@ -613,14 +1013,16 @@ function Overview(props: OverviewProps) {
               <div className="chart-actions">
                 <IndicatorPicker intraday={intraday && chartMode === 'line'} />
                 <AiControls profile={profile} loading={analysis.loading} onSettings={props.onSettings}
-                  onRun={() => analysis.run({ scope: 'chart', ticker: stock.ticker, market: stock.market, period: props.period, interval: props.interval, chart_type: chartMode })}
-                  onClear={analysis.clear} hasResult={Boolean(analysis.result)} />
-                <button type="button" className="immersive-trigger" title={`${t(props.immersive ? "退出沉浸" : "沉浸看盘")} (F)`} aria-keyshortcuts="F" aria-pressed={props.immersive}
+                  onRun={runChartAnalysis}
+                  onCancel={analysis.cancel} onClear={analysis.clear} hasResult={Boolean(analysis.result)} />
+                <button type="button" className="immersive-trigger" title={`${t(props.immersive ? "退出沉浸" : "沉浸看盘")}${props.shortcutsEnabled ? ' (F)' : ''}`} aria-keyshortcuts={props.shortcutsEnabled ? 'F' : undefined} aria-pressed={props.immersive}
                   onClick={props.onToggleImmersive}><Icon name="expand" />{t(props.immersive ? "退出沉浸" : "沉浸看盘")}</button>
               </div>
-              <div className="period-tabs" role="group" aria-label={t('时间范围')}>
-                {periodOptions.filter(item => chartMode === 'line' || candlePeriodAllowed(props.candleInterval, item.key)).map(item => (
-                  <button key={item.key} type="button" className={props.period === item.key ? 'active' : ''} aria-pressed={props.period === item.key} onClick={() => props.setPeriod(item.key)}>
+              <div className={`period-tabs${visiblePeriods.length === 1 ? ' is-single' : ''}`} role="group" aria-label={t('时间范围')}>
+                {visiblePeriods.length === 1 ? <span className="chart-fixed-range">{t('1日')}</span> : visiblePeriods.map(item => (
+                  <button key={item.key} type="button" className={props.period === item.key ? 'active' : ''} aria-pressed={props.period === item.key}
+                    onPointerEnter={event => { if (event.pointerType === 'mouse') props.previewPeriod(item); }}
+                    onPointerLeave={props.cancelHistoryPreview} onClick={() => { props.cancelHistoryPreview(); props.setPeriod(item.key); }}>
                     {t(chartMode === 'candles' && item.key === '1d' ? '1日' : item.label)}
                   </button>
                 ))}
@@ -628,7 +1030,7 @@ function Overview(props: OverviewProps) {
             </div>
           </header>
           {analysis.error && <div className="error-banner" role="status">{t(analysis.error)}</div>}
-          {props.historyError && !chartData.length && <div role="status" className="error-banner">{t(props.historyError)}</div>}
+          <ResourceError error={props.historyError} loading={props.historyLoading} onRetry={props.historyRetry} label="重试图表" hasData={Boolean(chartData.length)} />
           <div className="chart-wrap">
             {props.historyLoading && !chartData.length
               ? <LoadingBlock label={t("加载中")} />
@@ -636,25 +1038,37 @@ function Overview(props: OverviewProps) {
                   referencePrice={props.historyMeta?.reference_price} adjustment={props.historyMeta?.adjustment} source={props.historyMeta?.source}
                   immersive={props.immersive} annotations={chartAnnotations} trendlines={trendlines} selectedAnnotation={selectedAnnotation} onSelectAnnotation={selectAnnotation} />}
           </div>
+          <ChartDataExport ticker={stock.ticker} period={props.period} interval={props.interval} history={props.historyMeta ?? null} />
+          {stock.market === 'CRYPTO' ? <>
+          <div className="key-stats">
+            <Metric label="24h开盘（USDT）" value={props.dayOpen > 0 ? props.dayOpen.toFixed(digits) : '--'} />
+            <Metric label="24h最高（USDT）" value={props.dayHigh > 0 ? props.dayHigh.toFixed(digits) : '--'} />
+            <Metric label="24h最低（USDT）" value={props.dayLow > 0 ? props.dayLow.toFixed(digits) : '--'} />
+            <Metric label={'24h成交量（'+stock.ticker.slice(0,-4)+'）'} value={props.price > 0 ? formatVolume(props.volume, stock.market, getLocale(), false) : '--'} />
+            <Metric label="24h成交额（USDT）" value={props.amount !== null && props.amount >= 0 ? formatCompact(props.amount) : '--'} />
+            <Metric label="市场 / 日线时区" value="现货 · 24/7 · UTC" />
+          </div>
+          </> : <>
           <div className="key-stats">
             <Metric label={t("今开")} value={props.dayOpen > 0 ? props.dayOpen.toFixed(digits) : '--'} />
-            <Metric label={t("昨收")} value={props.quoteDetails?.previous_close?.toFixed(digits) ?? '--'} />
-            <Metric label={t("最高")} value={props.dayHigh > 0 ? props.dayHigh.toFixed(digits) : '--'} tone="positive" />
-            <Metric label={t("最低")} value={props.dayLow > 0 ? props.dayLow.toFixed(digits) : '--'} tone="negative" />
+            <Metric label={t("昨收")} value={props.quoteDetails?.previous_close && props.quoteDetails.previous_close > 0 ? props.quoteDetails.previous_close.toFixed(digits) : '--'} />
+            <Metric label={t("最高")} value={props.dayHigh > 0 ? props.dayHigh.toFixed(digits) : '--'} tone={priceChangeTone(props.dayHigh, props.quoteDetails?.previous_close, digits)} />
+            <Metric label={t("最低")} value={props.dayLow > 0 ? props.dayLow.toFixed(digits) : '--'} tone={priceChangeTone(props.dayLow, props.quoteDetails?.previous_close, digits)} />
             <Metric label={t("振幅")} value={formatMetric(props.quoteDetails?.amplitude_percent, '%')} />
             <Metric label={t("量比")} value={formatMetric(props.quoteDetails?.volume_ratio)} />
-            <Metric label={t("成交量")} value={props.price > 0 ? formatCompact(props.volume) : '--'} />
-            <Metric label={t("成交额")} value={props.amount ? formatCompact(props.amount) : '--'} />
+            <Metric label={t("成交量")} value={props.price > 0 ? formatVolume(props.volume, stock.market, getLocale()) : '--'} />
+            <Metric label={t("成交额")} value={props.amount !== null && props.amount >= 0 ? formatCompact(props.amount) : '--'} />
             <Metric label={t("换手率")} value={props.turnoverRate === null ? '--' : `${props.turnoverRate.toFixed(2)}%`} />
             <Metric label={t("市盈率")} value={formatMetric(props.quoteDetails?.pe_ratio)} />
             <Metric label={t("市净率")} value={formatMetric(props.quoteDetails?.pb_ratio)} />
             <Metric label={t("总市值")} value={props.quoteDetails?.market_cap ? `${stock.market === 'CN' ? '¥' : '$'}${formatCompact(props.quoteDetails.market_cap)}` : '--'} />
           </div>
-          {analysis.result && <AnalysisSummary result={analysis.result} onAnnotation={selectAnnotation} />}
+          </>}
+          {analysis.result && <AnalysisSummary result={analysis.result} onAnnotation={selectAnnotation} plottedPoints={plottedPoints} />}
         </section>
 
         <aside className="insight-column">
-          <OrderBook ticker={stock.ticker} quote={props.quoteDetails} />
+          <OrderBook ticker={stock.ticker} quote={props.liveQuote} />
           <MarketSnapshot data={props.marketData} loading={props.marketLoading} onOpen={props.openMarkets} />
 
           <section className="movers-card surface">
@@ -666,17 +1080,18 @@ function Overview(props: OverviewProps) {
 
       <section className="intelligence-strip">
         <header>
-          <div><h2>{t("资讯")}</h2></div>
+          <div><h2>{t("资讯")}</h2>{props.newsStale && <small className="quote-tag">{t("缓存")}</small>}</div>
           <button onClick={props.openNews}>{t("更多")} <Icon name="arrow" /></button>
         </header>
+        <ResourceError error={props.newsError} loading={props.newsLoading} onRetry={props.newsRetry} label="重试资讯" hasData={Boolean(props.news.length)} />
         <div className="story-grid">
-          {props.news.slice(0, 3).map((item, index) => (
-            <button key={`${item.published_at}-${index}`} onClick={() => props.onOpenStory(item)}>
-              <span><time>{formatClock(item.published_at)}</time><small>{item.source}</small></span>
+          {(props.news.some(item=>newsCoins(item).includes(stock.ticker))?props.news.filter(item=>newsCoins(item).includes(stock.ticker)):props.news.filter(item=>newsLanguage(item)==='zh').length?props.news.filter(item=>newsLanguage(item)==='zh'):props.news).slice(0, 3).map(item => (
+            <button key={newsKey(item)} onClick={() => props.onOpenStory(item)}>
+              <span><time dateTime={item.published_at}>{formatClock(item.published_at)}</time><small>{item.source}</small></span>
               <h3>{item.title}</h3>
             </button>
           ))}
-          {!props.news.length && (props.newsLoading ? <LoadingBlock label={t("加载中")} /> : <p className="empty-message" role="status">{t(props.newsError ?? "暂无新闻")}</p>)}
+          {!props.news.length && !props.newsError && (props.newsLoading ? <LoadingBlock label={t("加载中")} /> : <p className="empty-message" role="status">{t("暂无新闻")}</p>)}
         </div>
       </section>
 
@@ -688,7 +1103,7 @@ function formatMetric(value: number | null | undefined, suffix = '') {
   return value !== null && value !== undefined && Number.isFinite(value) ? `${value.toFixed(2)}${suffix}` : '--';
 }
 
-function Metric({ label, value, tone }: { label: string; value: string; tone?: 'positive' | 'negative' }) {
+function Metric({ label, value, tone }: { label: string; value: string; tone?: ChangeTone }) {
   return <div className="metric"><span>{label}</span><strong className={tone}>{value}</strong></div>;
 }
 
@@ -718,50 +1133,71 @@ function MarketSnapshot({ data, loading, onOpen }: { data: ReturnType<typeof use
   );
 }
 
-function MoverRows({ rows, onSelect }: { rows: HotspotRow[]; onSelect: (row: HotspotRow) => void }) {
+function MoverRows({ rows, onSelect, group }: {
+  rows: HotspotRow[]; onSelect: (row: HotspotRow, anchor: HTMLButtonElement) => void; group?: string;
+}) {
   return <div className="mover-rows">{rows.map((row) => (
-    <button key={row.ticker} onClick={() => onSelect(row)}>
+    <button key={row.ticker} id={group ? `market-${group}-${row.ticker}` : undefined} data-market-ticker={row.ticker}
+      onClick={event => onSelect(row, event.currentTarget)}>
       <span><strong>{row.ticker}</strong><small>{row.name}</small><StockTags ticker={row.ticker} name={row.name} /></span>
       <span><strong>{row.price.toFixed(pricePrecision(row.ticker, row.price))}</strong><Delta value={row.change_percent} /></span>
     </button>
   ))}</div>;
 }
 
-function Markets({ market, setMarket, data, loading, error, onSelect, boardView, onBoardViewChange }: {
+function Markets({ market, setMarket, data, loading, error, onRetry, onSelect, boardView, onBoardViewChange, prefetch, cancelPrefetch }: {
   market: MarketType;
   setMarket: (market: MarketType) => void;
   data: ReturnType<typeof useMarketOverview>['data'];
   loading: boolean;
   error: string | null;
-  onSelect: (row: HotspotRow, fromBoard?: boolean) => void;
+  onRetry: () => void;
+  onSelect: (row: ChinaBoardMember, anchor: HTMLButtonElement, fromBoard?: boolean) => void;
   boardView: ChinaBoardView;
   onBoardViewChange: (view: ChinaBoardView) => void;
+  prefetch: (ticker: string) => void;
+  cancelPrefetch: () => void;
 }) {
-  const marketTabs = <div className="page-tabs"><button type="button" className={market === 'US' ? 'active' : ''} aria-pressed={market === 'US'} onClick={() => setMarket('US')}>{t("美国市场")}</button><button type="button" className={market === 'CN' ? 'active' : ''} aria-pressed={market === 'CN'} onClick={() => setMarket('CN')}>{t("中国市场")}</button></div>;
-  if (market === 'CN') return <div className="markets-page">
+  const movedBetweenRows = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'mouse' || !(event.target instanceof Element)) return;
+    const row = event.target.closest<HTMLElement>('[data-market-ticker]');
+    if (!row || (event.relatedTarget instanceof Node && row.contains(event.relatedTarget))) return;
+    return row.dataset.marketTicker;
+  };
+  const hover = {
+    onPointerOver: (event: PointerEvent<HTMLDivElement>) => {
+      const ticker = movedBetweenRows(event);
+      if (ticker) prefetch(ticker);
+    },
+    onPointerOut: (event: PointerEvent<HTMLDivElement>) => { if (movedBetweenRows(event)) cancelPrefetch(); },
+  };
+  const marketTabs = <div className="page-tabs"><button type="button" className="active" onClick={() => setMarket('CRYPTO')}>USDT现货 · 24小时</button></div>;
+  if (market === 'CN') return <div className="markets-page" aria-busy={loading && !data} {...hover}>
     <PageHeader title={t("A 股市场")} />
-    <ChinaMarkets data={data} onSelect={onSelect} boardView={boardView} onBoardViewChange={onBoardViewChange} />
+    <ResourceError error={error} loading={loading} onRetry={onRetry} label="重试市场" hasData={Boolean(data)} />
+    <ChinaMarkets data={data} error={error} onSelect={onSelect} boardView={boardView} onBoardViewChange={onBoardViewChange} />
   </div>;
 
   const heatRows = data?.sectors?.length ? data.sectors : [...(data?.leaders ?? []), ...(data?.laggards ?? [])];
   const maxChange = Math.max(...heatRows.map((row) => Math.abs(row.change_percent)), 1);
   return (
-    <div className="markets-page">
+    <div className="markets-page" aria-busy={loading && !data} {...hover}>
       <PageHeader title={t("市场")}>
         {marketTabs}
       </PageHeader>
-      {error && <div className="error-banner">{t(error)}</div>}
-      {data && <div className="market-meta"><span>{data.summary.mode === 'full_market' ? t("全市场") : t("样本")}</span><time>{formatClock(data.updated_at)}</time>{data.stale && <span>{t("缓存")}</span>}</div>}
+      <ResourceError error={error} loading={loading} onRetry={onRetry} label="重试市场" hasData={Boolean(data)} />
+      {data && <div className="market-meta"><span>{data.market === 'CRYPTO' ? 'Binance USDT现货' : data.summary.mode === 'full_market' ? t("全市场") : t("样本")}</span><time>{formatClock(data.updated_at)}</time>{data.stale && <span>{t("缓存")}</span>}</div>}
       <section className="index-row">
-        {(data?.indices ?? []).slice(0, 5).map((row) => <button key={row.ticker} onClick={() => onSelect(row)}><span>{row.name}</span><strong>{row.price.toFixed(2)}</strong><Delta value={row.change_percent} /><small>{row.ticker}</small></button>)}
+        {(data?.indices ?? []).slice(0, 5).map((row) => <button key={row.ticker} id={`market-index-${row.ticker}`} data-market-ticker={row.ticker}
+          onClick={event => onSelect(row, event.currentTarget)}><span>{row.name}</span><strong>{row.price.toFixed(2)}</strong><Delta value={row.change_percent} /><small>{row.ticker}</small></button>)}
       </section>
       <div className="market-grid">
         <section className="heatmap surface">
-          <header className="section-header"><div><h2>{t("板块")}</h2></div><small>{data ? t("更新 {time}", { time: formatClock(data.updated_at) }) : '--'}</small></header>
+          <header className="section-header"><div><h2>热门交易对 · 24h</h2></div><small>{data ? t("更新 {time}", { time: formatClock(data.updated_at) }) : '--'}</small></header>
           <div className="heatmap-grid">
             {heatRows.slice(0, 16).map((row, index) => (
-              <button key={`${row.ticker}-${index}`} data-direction={row.change_percent >= 0 ? 'up' : 'down'} style={{ ['--heat' as string]: Math.max(Math.abs(row.change_percent) / maxChange, .12) } as CSSProperties} onClick={() => onSelect(row)}>
-                <span>{row.sector ?? row.name}</span><small>{row.ticker}</small><Delta value={row.change_percent} /><em>{formatCompact(row.volume)}</em>
+              <button key={`${row.ticker}-${index}`} id={`market-heat-${row.ticker}`} data-market-ticker={row.ticker} data-direction={changeDirection(row.change_percent)} style={{ ['--heat' as string]: Math.max(Math.abs(row.change_percent) / maxChange, .12) } as CSSProperties} onClick={event => onSelect(row, event.currentTarget)}>
+                <span>{row.sector ?? row.name}</span><small>{row.ticker}</small><Delta value={row.change_percent} /><em>{formatVolume(row.volume, data?.market ?? 'US', getLocale())}</em>
               </button>
             ))}
             {loading && !heatRows.length && <LoadingBlock label={t("加载中")} />}
@@ -769,67 +1205,45 @@ function Markets({ market, setMarket, data, loading, error, onSelect, boardView,
         </section>
         <section className="ranking surface">
           <header className="section-header"><div><h2>{t("排行")}</h2></div></header>
-          <div className="ranking-columns"><div><h3>{t("领涨")}</h3><MoverRows rows={data?.leaders.slice(0, 8) ?? []} onSelect={onSelect} /></div><div><h3>{t("领跌")}</h3><MoverRows rows={data?.laggards.slice(0, 8) ?? []} onSelect={onSelect} /></div></div>
+          <div className="ranking-columns"><div><h3>{t("领涨")}</h3><MoverRows group="leaders" rows={data?.leaders.slice(0, 8) ?? []} onSelect={onSelect} /></div><div><h3>{t("领跌")}</h3><MoverRows group="laggards" rows={data?.laggards.slice(0, 8) ?? []} onSelect={onSelect} /></div></div>
         </section>
       </div>
     </div>
   );
 }
 
-function Intelligence({ data, loading, error, onOpenStory, market, onSettings }: { data: NewsItem[]; loading: boolean; error: string | null; onOpenStory: (item: NewsItem) => void; market: MarketType; onSettings: () => void }) {
-  const [query, setQuery] = useState('');
-  const [source, setSource] = useState('ALL');
-  const { profiles, activeId } = useAiProfiles();
-  const profile = profiles.find(p => p.id === activeId);
-  const analysis = useAnalysis(`news:${market}:${source}:${query}`, profile);
-  const filtered = data.filter((item) => (source === 'ALL' || item.source === source) &&
-    `${item.title} ${item.summary}`.toLowerCase().includes(query.trim().toLowerCase()));
-  const sources = [...new Set(data.map((item) => item.source))];
-  return (
-    <div className="news-page">
-      <PageHeader title={t("资讯")}><AiControls profile={profile} loading={analysis.loading} onSettings={onSettings}
-        onRun={() => analysis.run({ scope: 'news', market, query, news_source: source })}
-        onClear={analysis.clear} hasResult={Boolean(analysis.result)} /></PageHeader>
-      <div className="news-filters">
-        <input aria-label={t("筛选财经新闻")} placeholder={t("搜索资讯")} value={query} onChange={(event) => setQuery(event.target.value)} />
-        <select aria-label={t("新闻来源")} value={source} onChange={(event) => setSource(event.target.value)}><option value="ALL">{t("全部来源")}</option>{sources.map((name) => <option key={name} value={name}>{name}</option>)}</select>
-        {(query || source !== 'ALL') && <button type="button" onClick={() => { setQuery(''); setSource('ALL'); }}>{t("清除筛选")}</button>}
-        <small>{filtered.length} / {data.length} {t("条")}</small>
-      </div>
-      {error && <div role="status" className="error-banner">{t(error)}</div>}
-      {analysis.error && <div className="error-banner" role="status">{t(analysis.error)}</div>}
-      {analysis.result && <AnalysisSummary result={analysis.result} />}
-      {!filtered.length && (loading ? <LoadingBlock label={t("加载中")} /> : <p className="empty-message">{query || source !== 'ALL' ? t("没有匹配结果") : t("暂无新闻")}</p>)}
-      <section className="news-feed surface">
-        <div>
-          {filtered.map((item, index) => (
-            <button key={`${item.published_at}-${index}`} onClick={() => onOpenStory(item)}>
-              <time>{formatClock(item.published_at)}</time>
-              <div><h3>{item.title}</h3><p>{item.summary}</p></div>
-              <small>{item.source}</small>
-            </button>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
-}
+const newsKey = newsId;
 
-function NewsDialog({ item, onClose }: { item: NewsItem; onClose: () => void }) {
+const NewsDialog = memo(function NewsDialog({ item, onClose, onOpenTicker }: { item: NewsItem; onClose: () => void; onOpenTicker:(ticker:string)=>void }) {
+  useLanguage();
+  const sourceLink = newsSourceLink(item.url);
+  const library=useNewsLibrary(),saved=library.saved.some(n=>newsId(n)===newsId(item));
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current;
+    const opener = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     dialog?.showModal();
-    return () => dialog?.close();
+    return () => {
+      dialog?.close();
+      document.body.style.overflow = previousOverflow;
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus({ preventScroll: true });
+    };
   }, []);
   return <dialog ref={ref} className="news-dialog" aria-labelledby="news-dialog-title" onCancel={onClose} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <article>
-      <header><span>{item.source} · {formatClock(item.published_at)}</span><button type="button" aria-label={t("关闭新闻")} onClick={onClose}>{t("关闭 ×")}</button></header>
+    <header><span>{item.source} · {formatClock(item.published_at)}</span><button type="button" aria-label={t("关闭新闻")} onClick={onClose}>{t("关闭 ×")}</button></header>
+    <article tabIndex={0} aria-labelledby="news-dialog-title">
+      <small className="news-summary-label">{t('新闻摘要')}</small>
       <h2 id="news-dialog-title">{item.title}</h2>
-      <p>{item.summary}</p>
+      <p>{item.summary.trim() || t('该资讯未提供摘要')}</p>
     </article>
+    <div className="crypto-news-tags">{newsCoins(item).map(coin=><button type="button" key={coin} onClick={()=>onOpenTicker(coin)}>{coin.replace(/USDT$/,'')} 行情 ↗</button>)}<button type="button" className="crypto-news-save" aria-pressed={saved} onClick={()=>toggleNewsSaved(item)}>{saved?'★ 已收藏':'☆ 收藏'}</button></div>
+    {sourceLink && <footer className="news-source-action"><small>{sourceLink.hostname}</small>
+      <a href={sourceLink.href} target="_blank" rel="noopener noreferrer" aria-label={t('阅读原文（新窗口）')}>{t('阅读原文')} <span aria-hidden="true">↗</span></a>
+    </footer>}
   </dialog>;
-}
+});
 
 function PageHeader({ title, children }: { title: string; children?: ReactNode }) {
   return <header className="page-header"><h1>{title}</h1>{children}</header>;

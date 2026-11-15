@@ -1,6 +1,6 @@
 import type { MarketType } from '../store/stockStore';
 
-export type DeskView = 'overview' | 'markets' | 'news';
+export type DeskView = 'overview' | 'markets' | 'news' | 'strategy' | 'simulation';
 export type PeriodKey = '1d' | '5d' | '1mo' | '3mo' | '1y';
 
 export type HistoryPoint = {
@@ -16,6 +16,7 @@ export type HistoryPoint = {
 export type HistoryResponse = {
   data: HistoryPoint[]; source?: string; stale?: boolean; interval?: string;
   reference_price?: number | null; price_type?: string; adjustment?: string;
+  ticker?: string; as_of?: string; fetched_at?: string;
 };
 
 export type Quote = {
@@ -66,12 +67,16 @@ export type ChinaBoard = HotspotRow & {
   advancers?: number | null; decliners?: number | null; flat?: number | null;
   leader_name?: string | null; leader_change?: number | null;
 };
-export type ChinaBoardPage = {
-  rows: ChinaBoard[]; total: number; page: number; page_size: number; source: string; updated_at: string; stale?: boolean;
+export type ChinaBoardMember = Omit<HotspotRow, 'price' | 'change_percent' | 'volume'> & {
+  price: number | null; change_percent: number | null; volume: number | null;
+};
+export type ChinaBoardPage<Row = ChinaBoard> = {
+  rows: Row[]; total: number; page: number; page_size: number; source: string; updated_at: string; stale?: boolean;
 };
 export type ChinaBoardView = {
   category: 'industry' | 'concept';
   sort: 'strong' | 'weak' | 'amount';
+  memberSort: 'strong' | 'weak' | 'amount';
   page: number;
   query: string;
   selection: { board: ChinaBoard; page: number } | null;
@@ -103,6 +108,10 @@ export type HotspotResponse = {
 };
 
 export type NewsItem = {
+  id?: string | null;
+  language?: string | null;
+  tickers?: string[];
+  topic?: string | null;
   title: string;
   summary: string;
   published_at: string;
@@ -111,7 +120,8 @@ export type NewsItem = {
   market: string;
 };
 
-export type NewsResponse = { market: string; updated_at: string; keywords: string[]; items: NewsItem[] };
+export type NewsSourceState = { name: string; language: string; status: 'live' | 'cached' | 'unavailable'; item_count: number; updated_at?: string | null };
+export type NewsResponse = { market: string; updated_at: string; keywords: string[]; items: NewsItem[]; stale?: boolean; sources?: NewsSourceState[] };
 export type Loadable<T> = { data: T | null; loading: boolean; error: string | null };
 
 export const periodOptions: Array<{ key: PeriodKey; label: string; interval: string }> = [

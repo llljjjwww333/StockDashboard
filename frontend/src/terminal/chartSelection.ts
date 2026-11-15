@@ -7,7 +7,7 @@ export const candleIntervals: Array<{ value: CandleInterval; label: string }> = 
   { value: '30m', label: '30分钟' }, { value: '1h', label: '60分钟' }, { value: '1d', label: '日K' },
 ];
 export type ChartSelection = { period: PeriodKey; mode: ChartMode; lastCandlePeriod: PeriodKey; candleInterval: CandleInterval; lastMinutePeriod: PeriodKey };
-export type ChartAction = { type: 'mode'; mode: ChartMode } | { type: 'period'; period: PeriodKey } | { type: 'interval'; interval: CandleInterval };
+export type ChartAction = { type: 'mode'; mode: ChartMode } | { type: 'period'; period: PeriodKey } | { type: 'interval'; interval: CandleInterval } | { type: 'restore'; selection: ChartSelection };
 export const initialChartSelection: ChartSelection = { period: '1d', mode: 'line', lastCandlePeriod: '1mo', candleInterval: '1d', lastMinutePeriod: '1d' };
 const preferenceKey = 'marketdesk:chart-selection:v1';
 const isIntraday = (period: PeriodKey) => period === '1d' || period === '5d';
@@ -37,6 +37,7 @@ export function candlePeriodAllowed(interval: CandleInterval, period: PeriodKey)
 }
 
 export function chartSelection(state: ChartSelection, action: ChartAction): ChartSelection {
+  if (action.type === 'restore') return action.selection;
   if (action.type === 'period') {
     if (state.mode === 'candles' && !candlePeriodAllowed(state.candleInterval, action.period)) return state;
     const intraday = isIntraday(action.period);
@@ -49,10 +50,13 @@ export function chartSelection(state: ChartSelection, action: ChartAction): Char
       : action.interval === '1d' ? state.lastCandlePeriod : action.interval === '1m' ? '1d' : state.lastMinutePeriod;
     return { ...state, mode: 'candles', candleInterval: action.interval, period };
   }
-  if (action.mode === 'candles') {
-    const period = candlePeriodAllowed(state.candleInterval, state.period) ? state.period
-      : state.candleInterval === '1d' ? state.lastCandlePeriod : state.candleInterval === '1m' ? '1d' : state.lastMinutePeriod;
-    return { ...state, mode: 'candles', period };
-  }
-  return { ...state, mode: 'line' };
+  if (action.mode === state.mode) return state;
+  if (action.mode === 'line') return { ...state, mode: 'line' };
+
+  const { period } = state;
+  const candleInterval = candlePeriodAllowed(state.candleInterval, period) ? state.candleInterval
+    : period === '1d' ? '1m' : period === '5d' ? '5m' : '1d';
+  return { ...state, mode: 'candles', candleInterval,
+    lastCandlePeriod: isIntraday(period) ? state.lastCandlePeriod : period,
+    lastMinutePeriod: isIntraday(period) ? period : state.lastMinutePeriod };
 }

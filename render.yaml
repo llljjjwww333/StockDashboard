@@ -3,22 +3,28 @@ services:
     name: stock-dashboard-api
     runtime: python
     plan: free
+    branch: master
+    autoDeployTrigger: commit
     rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     healthCheckPath: /health
     envVars:
-      - key: POLYGON_API_KEY
-        sync: false
+      - key: QUOTE_REFRESH_SECONDS
+        value: "2"
 
   - type: web
     name: stock-dashboard-web
     runtime: static
+    branch: master
+    autoDeployTrigger: commit
     rootDir: frontend
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
-        sync: false
+        value: https://stock-dashboard-api-trec.onrender.com
       - key: VITE_WS_URL
-        sync: false
+        value: wss://stock-dashboard-api-trec.onrender.com
+      - key: NODE_VERSION
+        value: "24"

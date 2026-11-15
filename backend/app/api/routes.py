@@ -1,9 +1,13 @@
 from fastapi import APIRouter, HTTPException, Query
 from app.services.runtime import stock_service
 from app.services.cn_market import CN_INDICES
+from app.services.crypto_market import crypto_market, is_crypto
 from app.services.stock_data_service import DataSourceUnavailable
 from app.schemas.analysis import AnalysisRequest, MarketAnalysis, ProviderTestRequest
 from app.services.analysis_service import analyze_market, request_model, ProviderError
+from app.schemas.strategy import GeneratedStrategy, StrategyGenerationRequest
+from app.services.strategy_generation import generate_strategy
+from app.services.trading_review import PortfolioReviewRequest, review_portfolio, PortfolioDesignRequest, design_portfolio
 import asyncio
 from typing import Literal
 from app.schemas.stock import (
@@ -17,6 +21,35 @@ from app.schemas.stock import (
 )
 
 router = APIRouter()
+
+@router.get('/stocks/{ticker}/depth')
+async def get_crypto_depth(ticker: str):
+    if not is_crypto(ticker):
+        raise HTTPException(400, '请选择USDT现货交易对')
+    try:
+        return await crypto_market.depth(ticker)
+    except Exception:
+        raise HTTPException(503, '盘口数据暂不可用') from None
+
+
+@router.post('/ai/portfolios/design')
+async def design_portfolio_strategy(payload: PortfolioDesignRequest):
+    try:
+        return await design_portfolio(payload, stock_service)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    except ProviderError as exc:
+        raise HTTPException(502, str(exc)) from None
+
+
+@router.post('/ai/portfolios/review')
+async def review_paper_strategy(payload: PortfolioReviewRequest):
+    try:
+        return await review_portfolio(payload, stock_service)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    except ProviderError as exc:
+        raise HTTPException(502, str(exc)) from None
 
 
 @router.post("/ai/providers/test")
@@ -40,6 +73,16 @@ async def analyze_current_market(payload: AnalysisRequest):
         raise HTTPException(400, str(exc)) from None
     except ProviderError as exc:
         raise HTTPException(502, str(exc)) from None
+
+@router.post("/ai/strategies/generate", response_model=GeneratedStrategy)
+async def generate_ai_strategy(payload: StrategyGenerationRequest):
+    try:
+        return await generate_strategy(payload, stock_service)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    except ProviderError as exc:
+        raise HTTPException(502, str(exc)) from None
+
 
 @router.get("/stocks/{ticker}/history", response_model=StockHistoryResponse)
 async def get_stock_history(ticker: str, period: str = Query("1y", description="Time period: 1d, 5d, 1mo, 3mo, 1y; legacy 1wk aliases 5d"), interval: str = Query("1d", description="Interval: 1m, 5m, 15m, 30m, 1h, 1d, 1wk, 1mo"), candles: bool = Query(False, description="Request genuine minute OHLC candles instead of price snapshots")):
@@ -136,11 +179,15 @@ async def get_cn_boards(
 
 
 @router.get("/market/cn/boards/{board}/members")
-async def get_cn_board_members(board: str, page: int = Query(1, ge=1, le=100)):
+async def get_cn_board_members(
+    board: str,
+    page: int = Query(1, ge=1),
+    sort: Literal["strong", "weak", "amount"] = "strong",
+):
     if len(board) != 6 or not board.startswith("BK") or not board[2:].isascii() or not board[2:].isdigit():
         raise HTTPException(400, "无效板块代码")
     try:
-        return await stock_service.cn_boards.get(page=page, board=board)
+        return await stock_service.cn_boards.get(sort=sort, page=page, board=board)
     except (ValueError, OSError):
         raise HTTPException(503, "成分股暂不可用") from None
 
@@ -148,7 +195,7 @@ async def get_cn_board_members(board: str, page: int = Query(1, ge=1, le=100)):
 @router.get("/news", response_model=FinanceNewsResponse)
 async def get_finance_news(
     market: str = Query("ALL", description="Market type: ALL, US or CN"),
-    limit: int = Query(200, ge=20, le=500, description="Number of news items to return"),
+    limit: int = Query(200, ge=1, le=500, description="Number of news items to return"),
 ):
     """Get real-time hot financial news."""
     try:

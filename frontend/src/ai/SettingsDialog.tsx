@@ -4,6 +4,8 @@ import { buildApiUrl } from '../lib/api';
 import { providerSettings, useAiProfiles } from './profileStore';
 import type { AiProfile } from './types';
 import { useAppearance } from '../store/appearanceStore';
+import { WatchlistBackup } from './WatchlistBackup';
+import { UsageHelp } from './UsageHelp';
 
 const presets = {
   custom: { name: '自定义接口', baseUrl: '', protocol: 'chat' as const },
@@ -17,33 +19,56 @@ const sections = [
   { id: 'ai', label: 'AI 配置' },
   { id: 'personalization', label: '个性化' },
   { id: 'language', label: '语言' },
+  { id: 'data', label: '自选备份' },
+  { id: 'help', label: '使用帮助' },
 ] as const;
 
-export function SettingsDialog({ onClose }: { onClose: () => void }) {
+export function SettingsDialog({ onClose, initialSection = 'ai' }: { onClose: () => void; initialSection?: 'ai' | 'help' | 'data' }) {
   const { language, setLanguage } = useLanguage();
   const { theme, priceColors, setTheme, setPriceColors } = useAppearance();
-  const { profiles, activeId, save, remove, select } = useAiProfiles();
+  const { profiles, activeId, save, remove, select, storageWarning } = useAiProfiles();
   const [draft, setDraft] = useState<AiProfile>(() => ({ ...(profiles.find(p => p.id === activeId) ?? emptyProfile()) }));
   const [message, setMessage] = useState('');
   const [testing, setTesting] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [preset, setPreset] = useState('custom');
-  const [section, setSection] = useState<(typeof sections)[number]['id']>('ai');
+  const [section, setSection] = useState<(typeof sections)[number]['id']>(initialSection);
   const [editorOpen, setEditorOpen] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+  const restoreProfileFocus = useRef<string | null | undefined>(undefined);
   const testController = useRef<AbortController | null>(null);
   useEffect(() => {
     const dialog = dialogRef.current;
+    const opener = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     dialog?.showModal();
-    return () => { testController.current?.abort(); dialog?.close(); };
+    return () => {
+      testController.current?.abort();
+      testController.current = null;
+      dialog?.close();
+      document.body.style.overflow = previousOverflow;
+      if (opener instanceof HTMLElement && opener.isConnected) opener.focus({ preventScroll: true });
+    };
   }, []);
+  useEffect(() => {
+    if (editorOpen || restoreProfileFocus.current === undefined) return;
+    const profileId = restoreProfileFocus.current;
+    restoreProfileFocus.current = undefined;
+    const buttons = dialogRef.current?.querySelectorAll<HTMLButtonElement>('[data-profile-id]');
+    const target = Array.from(buttons ?? []).find(button => button.dataset.profileId === profileId);
+    (target ?? addButtonRef.current)?.focus();
+  }, [editorOpen]);
   const change = (patch: Partial<AiProfile>) => {
     testController.current?.abort();
+    testController.current = null;
     setTesting(false);
     setDraft(current => ({ ...current, ...patch }));
     setMessage('');
   };
   const openEditor = (profile?: AiProfile) => {
+    restoreProfileFocus.current = profile?.id ?? null;
     change(profile ? { ...profile } : emptyProfile());
     setPreset('custom');
     setShowKey(false);
@@ -51,36 +76,53 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
   };
   const closeEditor = () => {
     testController.current?.abort();
+    testController.current = null;
     setTesting(false);
     setMessage('');
     setEditorOpen(false);
   };
   const validate = () => {
+    if (!draft.name.trim() || !draft.model.trim()) {
+      setMessage('请填写名称、接口地址和模型');
+      return false;
+    }
     try {
       const url = new URL(draft.baseUrl);
-      if (!['http:', 'https:'].includes(url.protocol) || !draft.name.trim() || !draft.model.trim()) throw new Error();
+      if (!['http:', 'https:'].includes(url.protocol) || !url.hostname || url.username || url.password || url.search || url.hash) throw new Error();
       return true;
-    } catch { setMessage('请填写名称、接口地址和模型'); return false; }
+    } catch { setMessage('接口地址格式不正确'); return false; }
+  };
+  const cancelTest = () => {
+    testController.current?.abort();
+    testController.current = null;
+    setTesting(false);
+    setMessage('连接测试已取消');
   };
   const test = async () => {
     if (!validate()) return;
+    testController.current?.abort();
     const controller = new AbortController();
+    const settings = providerSettings(draft);
     testController.current = controller;
     setTesting(true);
     setMessage('');
     try {
       const response = await fetch(buildApiUrl('/ai/providers/test'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings: providerSettings(draft) }),
+        body: JSON.stringify({ settings }),
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(65000)]),
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(typeof result.detail === 'string' ? result.detail : '连接失败');
-      if (!controller.signal.aborted) setMessage('连接成功');
+      const result = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(typeof result?.detail === 'string' ? result.detail : '连接失败');
+      if (result?.ok !== true || result.model !== settings.model) throw new Error('连接失败');
+      if (testController.current === controller) setMessage('连接成功');
     } catch (error) {
-      if (!controller.signal.aborted) setMessage(error instanceof Error ? error.message : '连接失败');
+      if (testController.current === controller) setMessage(error instanceof Error ? error.message : '连接失败');
     } finally {
-      if (!controller.signal.aborted) setTesting(false);
+      if (testController.current === controller) {
+        testController.current = null;
+        setTesting(false);
+      }
     }
   };
   return <dialog className="settings-dialog" ref={dialogRef} aria-labelledby="settings-title" onCancel={onClose} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -101,6 +143,12 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
           onClick={() => setSection(item.id)}>{t(item.label)}</button>)}
       </nav>
       <div className="settings-content">
+      <section id="settings-panel-help" className="settings-panel" role="tabpanel" aria-labelledby="settings-tab-help" hidden={section !== 'help'}>
+        <UsageHelp />
+      </section>
+      <section id="settings-panel-data" className="settings-panel" role="tabpanel" aria-labelledby="settings-tab-data" hidden={section !== 'data'}>
+        <WatchlistBackup />
+      </section>
       <section id="settings-panel-personalization" className="settings-panel" role="tabpanel" aria-labelledby="settings-tab-personalization" hidden={section !== 'personalization'}>
         <h3>{t('个性化')}</h3>
         <div className="appearance-settings">
@@ -122,31 +170,44 @@ export function SettingsDialog({ onClose }: { onClose: () => void }) {
         </div>
       </section>
       <section id="settings-panel-ai" className="settings-panel" role="tabpanel" aria-labelledby="settings-tab-ai" hidden={section !== 'ai'}>
+        {storageWarning && <p role="status" className="settings-status">{t(storageWarning === 'profiles'
+          ? '浏览器未能保存配置更改，本页仍可使用。' : '密钥未能保存在当前会话，刷新后需要重新填写。')}</p>}
         <div className="provider-panel-heading">
           {editorOpen ? <><button className="provider-back" type="button" aria-label={t('返回接口列表')} onClick={closeEditor}>‹ {t('返回')}</button><h3>{t(profiles.some(p => p.id === draft.id) ? '编辑接口' : '添加接口')}</h3></>
-            : <><h3>{t('AI 配置')}</h3><button className="provider-add" type="button" aria-label={t('添加接口')} title={t('添加接口')} onClick={() => openEditor()}><span aria-hidden="true">＋</span></button></>}
+            : <><h3>{t('AI 配置')}</h3><button ref={addButtonRef} className="provider-add" type="button" aria-label={t('添加接口')} title={t('添加接口')} onClick={() => openEditor()}><span aria-hidden="true">＋</span></button></>}
         </div>
         {!editorOpen && <div className="provider-list" aria-label={t('AI 接口')}>
-          {profiles.map(p => <button type="button" key={p.id} aria-label={p.name} aria-current={p.id === activeId ? 'true' : undefined} className={p.id === activeId ? 'active' : ''} onClick={() => openEditor(p)}><span>{p.name}</span>{p.id === activeId && <small>{t('当前')}</small>}<i aria-hidden="true">›</i></button>)}
+          {profiles.map(p => <div className="provider-entry" key={p.id} data-active={p.id === activeId}>
+            <button type="button" data-profile-id={p.id} aria-label={p.name} aria-current={p.id === activeId ? 'true' : undefined} className={p.id === activeId ? 'active' : ''} onClick={() => openEditor(p)}>
+              <span><strong>{p.name}</strong><small className="provider-model">{p.model}</small></span>{p.id === activeId && <small>{t('当前')}</small>}<i aria-hidden="true">›</i>
+            </button>
+            {p.id !== activeId && <button type="button" className="provider-use" aria-label={t('使用 {name}', { name: p.name })} onClick={event => {
+              const editor = event.currentTarget.parentElement?.querySelector<HTMLButtonElement>('[data-profile-id]');
+              select(p.id);
+              editor?.focus({ preventScroll: true });
+            }}>{t('使用')}</button>}
+          </div>)}
         </div>}
       {editorOpen && <form className="provider-form" onSubmit={e => {
         e.preventDefault();
         if (!validate()) return;
-        const profile = { ...draft, name: draft.name.trim(), updatedAt: Date.now() };
-        save(profile); select(profile.id); setDraft(profile); closeEditor();
+        const profile = { ...draft, name: draft.name.trim(), baseUrl: draft.baseUrl.trim(), model: draft.model.trim(),
+          apiKey: draft.apiKey.trim(), updatedAt: Date.now() };
+        save(profile); select(profile.id); setDraft(profile); restoreProfileFocus.current = profile.id; closeEditor();
       }}>
         <label>{t("预设")}<select value={preset} onChange={e => {
           setPreset(e.target.value);
           change({ ...presets[e.target.value as keyof typeof presets], model: '' });
         }}><option value="custom">{t("自定义")}</option><option value="deepseek">DeepSeek</option><option value="qwen">{t("通义千问")}</option><option value="claude">Claude</option></select></label>
-        <label>{t("名称")}<input aria-label={t("接口名称")} value={draft.name} maxLength={80} onChange={e => change({ name: e.target.value })} required /></label>
+        <label>{t("名称")}<input autoFocus aria-label={t("接口名称")} value={draft.name} maxLength={80} onChange={e => change({ name: e.target.value })} required /></label>
         <label>{t("协议")}<select aria-label={t("接口协议")} value={draft.protocol} onChange={e => change({ protocol: e.target.value as AiProfile['protocol'] })}><option value="chat">Chat Completions</option><option value="anthropic">Messages</option></select></label>
-        <label>{t("接口地址")}<input aria-label={t("接口地址")} type="url" value={draft.baseUrl} placeholder="https://api.example.com/v1" onChange={e => change({ baseUrl: e.target.value })} autoCapitalize="none" spellCheck={false} required /></label>
-        <label>{t("模型")}<input aria-label={t("模型")} value={draft.model} placeholder={t("模型 ID")} onChange={e => change({ model: e.target.value })} autoCapitalize="none" spellCheck={false} required /></label>
-        <label>API Key<div className="api-key-field"><input aria-label="API Key" type={showKey ? 'text' : 'password'} value={draft.apiKey} onChange={e => change({ apiKey: e.target.value })} autoComplete="off" autoCapitalize="none" spellCheck={false} /><button type="button" onClick={() => setShowKey(!showKey)}>{showKey ? t("隐藏") : t("显示")}</button></div></label>
+        <label>{t("接口地址")}<input aria-label={t("接口地址")} type="url" value={draft.baseUrl} maxLength={500} placeholder="https://api.example.com/v1" onChange={e => change({ baseUrl: e.target.value })} autoCapitalize="none" spellCheck={false} required /></label>
+        <label>{t("模型")}<input aria-label={t("模型")} value={draft.model} maxLength={150} placeholder={t("模型 ID")} onChange={e => change({ model: e.target.value })} autoCapitalize="none" spellCheck={false} required /></label>
+        <label>API Key<div className="api-key-field"><input aria-label="API Key" type={showKey ? 'text' : 'password'} value={draft.apiKey} maxLength={4096} onChange={e => change({ apiKey: e.target.value })} autoComplete="off" autoCapitalize="none" spellCheck={false} /><button type="button" onClick={() => setShowKey(!showKey)}>{showKey ? t("隐藏") : t("显示")}</button></div></label>
         <label className="remember-key"><input type="checkbox" checked={draft.rememberKey} onChange={e => change({ rememberKey: e.target.checked })} />{t("在此设备记住密钥")}</label>
         {message && <p className="settings-status" role="status">{t(message)}</p>}
-        <footer><button type="button" disabled={testing} onClick={test}>{testing ? t("测试中…") : t("测试连接")}</button><button className="ai-run" type="submit">{t("保存并使用")}</button>{profiles.some(p => p.id === draft.id) && <button type="button" className="delete-provider" onClick={() => { remove(draft.id); closeEditor(); }}>{t("删除")}</button>}</footer>
+        {testing && <p className="settings-status" role="status">{t('正在测试连接…')}</p>}
+        <footer><button type="button" aria-busy={testing} onClick={testing ? cancelTest : test}>{testing ? t('取消测试') : t("测试连接")}</button><button className="ai-run" type="submit">{t("保存并使用")}</button>{profiles.some(p => p.id === draft.id) && <button type="button" className="delete-provider" onClick={() => { remove(draft.id); closeEditor(); }}>{t("删除")}</button>}</footer>
       </form>}
       </section>
       </div>

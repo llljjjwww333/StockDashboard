@@ -1,10 +1,19 @@
-import { isChinaTicker } from '../lib/instrumentIdentity.ts';
+import { isCryptoTicker, isChinaTicker } from '../lib/instrumentIdentity.ts';
 import type { HistoryPoint } from './types';
 
 export const CHART_LEFT = 18;
 export const CHART_RIGHT = 76;
 
 export function buildChartLayout(data: HistoryPoint[], ticker: string, intraday: boolean, left: number, right: number, intervalMinutes = 1) {
+  if (isCryptoTicker(ticker)) {
+    const stamps=data.map(p=>Date.parse(p.timestamp)), first=stamps[0]??0, span=(stamps.at(-1)??first)-first;
+    const positions=stamps.map((stamp,i)=>data.length===1?(left+right)/2:intraday?left+(stamp-first)/Math.max(span,1)*(right-left):left+i/Math.max(data.length-1,1)*(right-left));
+    const breaks=new Set<number>();
+    if(intraday)stamps.forEach((stamp,i)=>{if(i&&stamp-stamps[i-1]>intervalMinutes*60000*1.5)breaks.add(i);});
+    const dates=[...new Set(data.map(p=>p.timestamp.slice(0,10)))];
+    const sessions=dates.map(date=>{const first=data.findIndex(p=>p.timestamp.slice(0,10)===date),last=data.findLastIndex(p=>p.timestamp.slice(0,10)===date);return {date,center:(positions[first]+positions[last])/2,divider:positions[first]};});
+    return {positions,breaks,sessions,step:intraday&&span?(right-left)*intervalMinutes*60000/span:(right-left)/Math.max(data.length-1,1)};
+  }
   const cn = isChinaTicker(ticker);
   const format = new Intl.DateTimeFormat('en-CA', { timeZone: cn ? 'Asia/Shanghai' : 'America/New_York',
     year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });

@@ -1,9 +1,14 @@
 .indicator-picker { position: relative; }
 .indicator-trigger { min-height: 34px; padding: 7px 10px; border: 1px solid var(--line); color: var(--text); background: transparent; cursor: pointer; font-size: 12px; }
-.indicator-menu { position: absolute; top: calc(100% + 8px); right: 0; z-index: 45; width: 320px; max-width: calc(100vw - 32px); max-height: 65vh; overflow: auto; padding: 14px; border: 1px solid var(--line); background: var(--ink-raised); box-shadow: 0 12px 32px #0006; }
-.indicator-menu header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 10px; }
+.indicator-menu { position: absolute; top: calc(100% + 8px); right: 0; z-index: 45; display: flex; flex-direction: column; width: 320px; max-width: calc(100vw - 32px); max-height: 65vh; padding: 14px; border: 1px solid var(--line); background: var(--ink-raised); box-shadow: 0 12px 32px #0006; }
+.indicator-menu header { display: flex; justify-content: space-between; align-items: center; gap: 6px; padding-bottom: 8px; }
 .indicator-menu header strong { font-size: 14px; }
 .indicator-menu header button { border: 0; padding: 5px; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; }
+.indicator-menu-actions { display: flex; gap: 4px; }
+.indicator-menu header .indicator-done { color: var(--text); background: var(--ink-hover); border-radius: 4px; }
+.indicator-groups { display: none; }
+.indicator-fields { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.indicator-storage-notice { flex-shrink: 0; margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--line); color: var(--orange); font-size: 11px; line-height: 1.6; white-space: normal; }
 .indicator-menu fieldset { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px 10px; margin: 8px 0 0; padding: 12px 0; border: 0; border-top: 1px solid var(--line); }
 .indicator-menu legend { color: var(--muted); padding: 0 8px 0 0; font-size: 12px; }
 .indicator-menu label { display: flex; align-items: center; gap: 7px; min-height: 32px; font-size: 12px; cursor: pointer; white-space: nowrap; }
@@ -30,7 +35,20 @@
 .market-chart .chart-axis-label { fill: var(--muted); font-size: 10px; }
 .insight-column { align-self: start; }
 @media (max-width: 760px) {
-  .indicator-menu { position: fixed; top: 20vh; right: 16px; max-height: 65vh; }
+  .indicator-menu {
+    position: fixed; top: auto; inset-inline: 12px; bottom: max(12px, env(safe-area-inset-bottom));
+    width: min(380px, calc(100vw - 24px)); max-width: none; max-height: 48vh; max-height: 48dvh;
+    margin-inline: auto; padding: 8px 12px; border-radius: 6px;
+  }
+  .indicator-menu header { flex-shrink: 0; padding-bottom: 4px; }
+  .indicator-menu header strong, .indicator-menu legend { display: none; }
+  .indicator-menu header button { min-height: 40px; padding: 4px 7px; white-space: nowrap; }
+  .indicator-groups { display: flex; gap: 2px; }
+  .indicator-groups button[aria-pressed="true"] { color: var(--orange); background: var(--orange-soft); border-radius: 4px; }
+  .indicator-menu fieldset { margin: 0; padding: 5px 0 0; gap: 0 6px; }
+  .indicator-menu[data-active-group="overlays"] .indicator-panels,
+  .indicator-menu[data-active-group="panels"] .indicator-overlays { display: none; }
+  .indicator-menu label { min-height: 40px; }
   .market-chart .price-svg { min-height: 0; }
   .market-chart .indicator-panel svg { min-height: 100px; }
   .market-chart .chart-axis-label { font-size: 10px; }

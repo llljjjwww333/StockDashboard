@@ -1,4 +1,4 @@
-import type { HistoryPoint, PeriodKey } from '../terminal/types';
+import type { HistoryPoint, HistoryResponse, NewsItem, PeriodKey } from '../terminal/types';
 import type { MarketType } from '../store/stockStore';
 
 export type AiProfile = {
@@ -21,6 +21,7 @@ export type Annotation = {
   label: string;
   detail: string;
 };
+export type PlottedAnnotation = Annotation & { ordinal: number };
 
 export type TrendAnchor = { timestamp: string; price: number };
 export type Trendline = {
@@ -31,7 +32,7 @@ export type Trendline = {
   label: string;
   detail: string;
 };
-export type PlottedTrendline = Trendline & { startIndex: number; endIndex: number };
+export type PlottedTrendline = Trendline & { startIndex: number; endIndex: number; clippedStartPrice?: number; clippedEndPrice?: number };
 
 export type AnalysisRequest = {
   language?: 'zh' | 'en';
@@ -41,8 +42,12 @@ export type AnalysisRequest = {
   period?: PeriodKey;
   interval?: string;
   chart_type?: 'line' | 'candles';
+  chart_history?: Pick<HistoryResponse, 'data' | 'source' | 'price_type' | 'adjustment' | 'stale'> & {
+    indicators?: Record<string, number | null>;
+  };
   query?: string;
   news_source?: string;
+  news_items?: NewsItem[];
 };
 
 export type AnalysisResult = {
@@ -64,6 +69,8 @@ export type AnalysisResult = {
     bar_count: number;
     news_count: number;
     source?: string;
+    price_type?: string | null;
+    adjustment?: string | null;
     as_of?: string;
     news_sources: string[];
     indicators: Record<string, number | null>;

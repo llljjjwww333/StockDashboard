@@ -5,9 +5,11 @@ import json
 import os
 import re
 import time
+import unicodedata
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from app.services.crypto_market import crypto_market, is_crypto
 from app.services.cn_market import CN_INDICES, ChinaBoardFeed
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -476,6 +478,8 @@ class StockDataService:
         return aliases.get(period, period)
 
     def get_stock_market(self, ticker: str) -> str:
+        if is_crypto(ticker):
+            return "CRYPTO"
         if ticker.upper() in CN_INDICES or (ticker.isdigit() and len(ticker) == 6):
             return "CN"
         return "US"
@@ -552,7 +556,19 @@ class StockDataService:
 
     def _http_get_json(self, url: str, timeout: float | None = None) -> dict[str, Any]:
         request = urllib.request.Request(url, headers=self.http_headers)
-        with urllib.request.urlopen(request, timeout=timeout or self.source_timeout_seconds) as response:
+        request_timeout = timeout or self.source_timeout_seconds
+        target = urllib.parse.urlsplit(url)
+        host = target.hostname or ""
+        if (host == "eastmoney.com" or host.endswith(".eastmoney.com")) and urllib.request.getproxies().get(target.scheme):
+            try:
+                direct = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+                with direct.open(request, timeout=request_timeout) as response:
+                    return json.load(response)
+            except urllib.error.HTTPError:
+                raise
+            except OSError:
+                pass
+        with urllib.request.urlopen(request, timeout=request_timeout) as response:
             return json.load(response)
 
     def _http_get_text(self, url: str) -> str:
@@ -934,14 +950,14 @@ class StockDataService:
 
         return quote_map
 
-    def _get_cn_a_share_universe(self) -> dict[str, str]:
+    def _read_cn_a_share_directory(self, *, allow_stale: bool = False) -> dict[str, str]:
         cached_payload = self._read_json_cache(self.cn_a_share_universe_cache_file)
         if isinstance(cached_payload, dict):
             cached_at = self._safe_float(cached_payload.get("saved_at"))
             cached_rows = cached_payload.get("rows")
             if (
-                cached_at is not None
-                and time.time() - cached_at < self.cn_full_market_universe_cache_ttl_seconds
+                (allow_stale or (cached_at is not None
+                 and 0 <= time.time() - cached_at < self.cn_full_market_universe_cache_ttl_seconds))
                 and isinstance(cached_rows, list)
             ):
                 universe: dict[str, str] = {}
@@ -950,10 +966,15 @@ class StockDataService:
                         continue
                     ticker = str(item.get("ticker") or "").strip()
                     name = str(item.get("name") or "").strip()
-                    if ticker and name:
+                    if re.fullmatch(r"[0-9]{6}", ticker) and name:
                         universe[ticker] = name
-                if universe:
-                    return universe
+                return universe
+        return {}
+
+    def _get_cn_a_share_universe(self) -> dict[str, str]:
+        cached = self._read_cn_a_share_directory()
+        if cached:
+            return cached
 
         frame = ak.stock_info_a_code_name()
         if frame is None or getattr(frame, "empty", True):
@@ -1590,6 +1611,8 @@ class StockDataService:
     async def get_historical_data(
         self, ticker: str, period: str = "1mo", interval: str = "1d", candles: bool = False
     ) -> StockHistoryResponse:
+        if is_crypto(ticker):
+            return await crypto_market.history(ticker, period, interval)
         period = self.normalize_period(period)
         interval = self.normalize_interval(period, interval)
         candles = candles and period in {"1d", "5d"}
@@ -1622,6 +1645,8 @@ class StockDataService:
     async def _get_historical_data(
         self, ticker: str, period: str, interval: str, candles: bool = False
     ) -> StockHistoryResponse:
+        if is_crypto(ticker):
+            return await crypto_market.history(ticker, period, interval)
         period = self.normalize_period(period)
         interval = self.normalize_interval(period, interval)
         market = self.get_stock_market(ticker)
@@ -1792,6 +1817,16 @@ class StockDataService:
         return quotes
 
     async def get_quote_batch(self, tickers: list[str]) -> dict[str, StockUpdate]:
+        crypto = [s.strip().upper() for s in tickers if is_crypto(s.strip().upper())]
+        if crypto:
+            if len(tickers) > 100:
+                raise ValueError("Maximum 100 symbols")
+            result = await crypto_market.quotes(crypto)
+            self.quote_cache.update({s: (time.time(), q) for s, q in result.items()})
+            others = [s for s in tickers if s.strip().upper() not in crypto]
+            if others:
+                result.update(await self.get_quote_batch(others))
+            return result
         tickers = list(dict.fromkeys(ticker.strip().upper() for ticker in tickers if ticker.strip()))
         if len(tickers) > 100:
             raise ValueError("A maximum of 100 tickers is supported per request")
@@ -1829,6 +1864,8 @@ class StockDataService:
             return result
 
     async def get_real_time_data(self, ticker: str) -> StockUpdate:
+        if is_crypto(ticker.upper()):
+            return await crypto_market.latest(ticker.upper())
         normalized = ticker.strip().upper()
         quotes = await self.get_quote_batch([normalized])
         if normalized not in quotes:
@@ -1839,6 +1876,8 @@ class StockDataService:
         self, market: str = "ALL", limit: int = 200
     ) -> FinanceNewsResponse:
         normalized_market = market.upper()
+        if normalized_market == "CRYPTO":
+            return await crypto_market.news(limit)
         cache_key = f"{normalized_market}:{limit}"
         now = time.time()
         cached_news = self.news_cache.get(cache_key)
@@ -2006,7 +2045,9 @@ class StockDataService:
         return recommendations[:5]
 
     async def search_stocks(self, query: str, market: str) -> list[dict[str, str]]:
-        query = query.strip()[:100]
+        if market.upper() == "CRYPTO":
+            return await crypto_market.search(query)
+        query = unicodedata.normalize("NFKC", query).strip()[:100]
         market = market.upper()
         if not query or market not in {"US", "CN"}:
             return []
@@ -2070,6 +2111,12 @@ class StockDataService:
                    if query.casefold() in (ticker + " " + name).casefold()]
         if len(indices) == 1 and query.casefold() in {indices[0]["ticker"].casefold(), indices[0]["name"].casefold()}:
             return indices
+        directory = await asyncio.to_thread(self._read_cn_a_share_directory)
+        normalized = query.casefold()
+        exact = [{"ticker": ticker, "name": name} for ticker, name in directory.items()
+                 if normalized in {ticker, unicodedata.normalize("NFKC", name).casefold()}]
+        if exact:
+            return exact[:12]
         try:
             params = urllib.parse.urlencode(
                 {
@@ -2115,12 +2162,12 @@ class StockDataService:
                 {"ticker": "300033", "name": "Tonghuashun"},
                 {"ticker": "300059", "name": "East Money"},
             ]
-            cached = self._read_json_cache(self.cn_a_share_universe_cache_file) or {}
-            directory = {stock["ticker"]: stock for stock in cached.get("rows", []) if isinstance(stock, dict) and stock.get("ticker")}
+            if not directory:
+                directory = await asyncio.to_thread(self._read_cn_a_share_directory, allow_stale=True)
             for stock in cn_stocks + self.market_hotspot_universe.get("CN", []):
-                directory[stock["ticker"]] = stock
-            local = [stock for stock in directory.values()
-                     if query.casefold() in (stock.get("ticker", "") + " " + stock.get("name", "")).casefold()]
+                directory.setdefault(stock["ticker"], stock["name"])
+            local = [{"ticker": ticker, "name": name} for ticker, name in directory.items()
+                     if normalized in unicodedata.normalize("NFKC", f"{ticker} {name}").casefold()]
             return (local + indices)[:12]
 
     async def _get_hotspot_proxy_rows(self, market: str) -> list[dict[str, Any]]:
@@ -2309,6 +2356,8 @@ class StockDataService:
             print(f"Background market refresh {market}: {type(exc).__name__}: {exc}")
 
     async def get_market_hotspots(self, market: str) -> dict[str, Any]:
+        if market.upper() == "CRYPTO":
+            return await crypto_market.overview()
         normalized_market = market.upper()
         if normalized_market not in {"CN", "US"}:
             raise ValueError("Market must be CN or US")

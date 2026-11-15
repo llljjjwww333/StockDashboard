@@ -1,4 +1,8 @@
 /* A compact chart toolbar and stable plotting dimensions across screen sizes. */
+.chart-module-error { min-height: 240px; display: grid; place-content: center; justify-items: center; gap: 12px; color: var(--muted); font-size: 13px; }
+.chart-module-error button { padding: 8px 18px; color: var(--text); background: var(--ink-raised); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+.chart-module-error button:hover { background: var(--ink-hover); }
+.chart-module-error button:focus-visible { outline: 2px solid var(--orange); outline-offset: 3px; }
 .content-canvas { max-width: 1460px; padding: 18px 28px 40px; }
 .overview .instrument-hero { min-height: 86px; padding: 0 0 18px; gap: 24px; }
 .overview .instrument-title h1 { margin: 0 0 10px; font-size: 28px; font-weight: 600; letter-spacing: -.025em; }
@@ -8,20 +12,31 @@
 .overview .hero-quote > div { gap: 12px; margin-top: 8px; font-size: 13px; }
 .overview .overview-layout { grid-template-columns: minmax(0,1fr) 272px; gap: 18px; margin-top: 18px; align-items: start; }
 .overview .insight-column { display: flex; flex-direction: column; gap: 16px; }
-.order-book { padding: 16px; border-radius: 6px; }
-.order-book header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.order-book { padding: 16px; border-radius: 6px; container: order-book / inline-size; }
+.order-book header { display: flex; align-items: center; justify-content: space-between; gap: 6px 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .order-book h2 { margin: 0; font-size: 14px; }
 .order-book header small, .order-book footer { color: var(--muted); font-size: 11px; }
+.book-meta { display: flex; align-items: baseline; gap: 8px; margin-inline-start: auto; font-variant-numeric: tabular-nums; }
+.order-book .book-meta .quote-tag { color: var(--orange); }
+.book-rows { display: flex; flex-direction: column; }
 .book-row { position: relative; display: grid; grid-template-columns: 34px 1fr 1fr; align-items: center; gap: 6px; min-height: 27px; font-size: 12px; font-variant-numeric: tabular-nums; }
 .book-row > i { position: absolute; inset: 2px 0 2px auto; background: currentColor; opacity: .07; pointer-events: none; }
-.book-side.ask { color: var(--down); padding-bottom: 7px; margin-bottom: 7px; border-bottom: 1px solid var(--line-soft); }
+.book-side.ask { color: var(--down); display: flex; flex-direction: column-reverse; order: -1; padding-bottom: 7px; margin-bottom: 7px; border-bottom: 1px solid var(--line-soft); }
 .book-side.bid { color: var(--up); }
 .book-row > span { color: var(--muted); font-size: 11px; }
 .book-row strong { font-weight: 500; text-align: right; }
 .book-row small { text-align: right; color: var(--text); font-size: 11px; }
+.book-row[data-level="1"] strong { font-weight: 650; }
 .order-book footer { display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid var(--line-soft); padding-top: 12px; margin-top: 10px; }
 .order-book footer b { color: var(--text); font-weight: 500; }
 .book-empty { font-size: 12px; color: var(--muted); margin: 20px 0; }
+
+@container order-book (min-width: 250px) {
+  .book-rows { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .book-side.ask { flex-direction: column; order: 0; margin: 0; padding: 0 0 0 8px; border: 0; border-inline-start: 1px solid var(--line-soft); }
+  .book-row { grid-template-columns: auto minmax(0, 1.05fr) minmax(0, 1fr); gap: 4px; }
+  .book-row strong, .book-row small { overflow-wrap: anywhere; }
+}
 .market-session { display: inline-flex; gap: 5px; align-items: center; color: var(--muted); }
 .market-session i { width: 5px; height: 5px; border-radius: 50%; background: var(--dim); }
 .market-session.is-open i { background: var(--green); }
@@ -41,6 +56,7 @@
 .chart-header .chart-mode button { min-height: 30px; min-width: 40px; padding: 5px 9px; border-radius: 3px; font-size: 12px; }
 .chart-header .chart-mode button[aria-pressed='true'] { background: var(--ink-hover); color: var(--text); font-weight: 600; }
 .chart-header .period-tabs { gap: 3px; }
+.chart-fixed-range { display: inline-flex; align-items: center; min-height: 28px; padding-inline: 6px; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .chart-header .period-tabs button { min-width: 38px; min-height: 32px; padding: 5px 9px; border-radius: 4px; font-size: 12px; }
 .chart-header .indicator-trigger { min-height: 32px; padding: 6px 10px; border-color: var(--line-soft); border-radius: 4px; }
 .chart-actions .ai-controls { gap: 6px; }
@@ -62,10 +78,11 @@
 .chart-card .chart-wrap { min-height: 0; padding: 10px 14px 0; }
 .chart-card .market-chart { min-height: 0; }
 .chart-card .chart-readout { min-height: 32px; padding: 0 4px; gap: 12px; flex-wrap: wrap; }
-.chart-card .chart-readout > div { gap: 10px; }
+.chart-card .chart-readout > div { gap: 4px 10px; flex-wrap: wrap; }
 .chart-card .chart-readout > div span { font-size: 12px; }
 .chart-card .chart-readout > div strong { font-size: 18px; font-weight: 600; }
 .chart-card .chart-readout > div em { font-size: 12px; }
+.chart-card .chart-readout > div em small { color: var(--muted); font-size: 11px; margin-inline-end: 3px; }
 .chart-card .chart-readout dl { gap: 12px; flex-wrap: wrap; }
 .chart-card .chart-readout dl div { display: flex; gap: 4px; }
 .chart-card .chart-readout dt, .chart-card .chart-readout dd { font-size: 12px; }
@@ -102,6 +119,7 @@
 @media (max-width: 1150px) {
   .overview .overview-layout { grid-template-columns: minmax(0,1fr); }
   .overview .insight-column { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); align-items: start; }
+  .overview .insight-column > .order-book { grid-column: 1 / -1; }
 }
 @media (max-width: 760px) {
   .app-shell:not(.is-immersive) .immersive-trigger { display: none; }
@@ -123,8 +141,7 @@
   .chart-header .period-tabs { flex-basis: 100%; gap: 3px; padding: 2px; border-radius: 5px; background: var(--ink-raised); }
   .chart-header .period-tabs button { flex: 1; padding: 4px; min-width: 0; min-height: 36px; }
   .chart-header .period-tabs button.active { color: var(--orange); background: var(--orange-soft); }
-  .chart-header .indicator-menu { inset-inline: 12px; width: min(360px, calc(100vw - 24px)); max-width: none; margin-inline: auto; border-radius: 6px; }
-  .chart-header .indicator-menu label { min-height: 38px; }
+  .chart-header .period-tabs.is-single { flex-basis: auto; padding: 0; background: transparent; }
   .chart-card .chart-wrap { padding: 10px 8px 0; }
   .chart-card .market-chart:not(.is-expanded) .chart-readout > div > span { display: none; }
   .chart-card .chart-readout dl { gap: 6px 12px; }
@@ -132,7 +149,7 @@
   .chart-meta-row { padding-bottom: 10px; gap: 8px; }
   .chart-meta-row .chart-context, .chart-meta-row .indicator-legend { font-size: 11px; }
   .chart-card .chart-axis-label, .last-price-tag text { font-size: 11px; }
-  .chart-card .metric { padding: 12px 10px; }
-  .chart-card .metric strong { font-size: 14px; }
+  .chart-card .metric { padding: 8px 10px; }
+  .chart-card .metric strong { margin-top: 3px; font-size: 14px; }
   .overview .insight-column { grid-template-columns: minmax(0,1fr); }
 }

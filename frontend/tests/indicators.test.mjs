@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateIndicators, sma, ema, seriesPath } from '../src/terminal/indicators.ts';
+import { analysisIndicatorValues, calculateIndicators, sma, ema, seriesPath } from '../src/terminal/indicators.ts';
+import { compatibleIndicatorHistory } from '../src/terminal/indicatorWarmup.ts';
 
 function bars(count, flat = false) {
   return Array.from({ length: count }, (_, i) => ({ timestamp: new Date(Date.UTC(2026, 0, i + 1)).toISOString(),
@@ -21,12 +22,45 @@ test('daily prehistory fills MA60 throughout the displayed one-month window', ()
   assert.equal(result.overlays.ma60[0].values.length, 30);
 });
 
+test('analysis uses the displayed indicator formulas, warmup and supported panels', () => {
+  const all = bars(100);
+  const visible = all.slice(80), warmup = all.slice(0, 80);
+  const onChart = calculateIndicators(visible, warmup);
+  const evidence = analysisIndicatorValues(visible, warmup, true);
+  assert.equal(evidence.ma60, onChart.overlays.ma60[0].values.at(-1));
+  assert.equal(evidence.ma60, 169.5);
+  assert.equal(evidence.macd, onChart.panels.macd.lines[0].values.at(-1));
+  assert.equal(evidence.macd_signal, onChart.panels.macd.lines[1].values.at(-1));
+  assert.equal(evidence.macd_histogram, onChart.panels.macd.bars.at(-1));
+  assert.equal(evidence.rsi14, onChart.panels.rsi.lines[0].values.at(-1));
+  assert.equal(analysisIndicatorValues(visible, [], false).ma60, null);
+  assert(!('atr14' in analysisIndicatorValues(visible, [], false)));
+});
+
 test('warmup data after the visible last candle cannot affect indicators', () => {
   const all = bars(180);
   const visible = all.slice(150, 161);
   all[179].close = 999999;
   const result = calculateIndicators(visible, all);
   assert.equal(result.overlays.ma5[0].values.at(-1), 258);
+});
+
+test('daily warmup checks completed exchange dates and never duplicates visible days', () => {
+  const all = bars(90);
+  const visible = {
+    adjustment: 'qfq', interval: '1d', price_type: 'ohlc', source: 'First feed',
+    data: all.slice(65).map(bar => ({ ...bar, timestamp: bar.timestamp.replace('T00:', 'T07:') })),
+  };
+  const warmup = { ...visible, source: 'Second feed', data: all };
+  // The incomplete latest candle may differ between otherwise matching feeds.
+  visible.data.at(-1).close += 1;
+  const selected = compatibleIndicatorHistory('600519', visible, warmup);
+  assert.deepEqual(selected, all.slice(0, 65));
+  assert.notEqual(calculateIndicators(visible.data, selected).overlays.ma60[0].values.at(-1), null);
+  assert.deepEqual(compatibleIndicatorHistory('600519', visible, { ...warmup, adjustment: 'none' }), []);
+  assert.deepEqual(compatibleIndicatorHistory('600519', visible, { ...warmup, data: all.slice(0, 65) }), []);
+  const mismatched = all.map(bar => ({ ...bar, high: bar.high * 2 }));
+  assert.deepEqual(compatibleIndicatorHistory('600519', visible, { ...warmup, data: mismatched }), []);
 });
 
 test('flat prices produce finite neutral oscillators and zero-width Bollinger bands', () => {

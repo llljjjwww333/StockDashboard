@@ -28,12 +28,19 @@
 .settings-dialog .provider-add { margin-left: auto; width: 38px; padding: 0; font-size: 22px; line-height: 1; }
 .settings-dialog .provider-back { padding: 6px 10px; color: var(--muted); }
 .provider-list { display: grid; gap: 10px; }
+.provider-entry { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 6px; }
+.provider-entry[data-active='true'] { grid-template-columns: minmax(0,1fr); }
+.provider-entry > button { min-width: 0; }
+.provider-list .provider-use { width: auto; color: var(--orange); justify-content: center; }
 .provider-list button { width: 100%; min-height: 58px; display: flex; align-items: center; gap: 12px; padding: 12px 16px; text-align: left; }
 .provider-list button.active { border-color: var(--orange); background: var(--orange-soft); }
 .provider-list button:hover { background: var(--ink-hover); }
 .provider-list button i { margin-left: auto; color: var(--muted); font-size: 20px; font-style: normal; }
 .provider-list button span { min-width: 0; overflow-wrap: anywhere; }
 .provider-list button small { font-size: 10px; color: var(--orange); }
+.provider-list button > small { flex-shrink: 0; white-space: nowrap; }
+.provider-list button strong { display: block; font-size: 13px; font-weight: 600; }
+.provider-list .provider-model { display: block; margin-top: 4px; color: var(--muted); }
 .provider-form { min-width: 0; }
 .provider-form > label { display: grid; gap: 7px; margin-bottom: 14px; color: var(--muted); font-size: 12px; }
 .provider-form input:not([type=checkbox]), .provider-form select { width: 100%; min-width: 0; height: 41px; border: 1px solid var(--line); background: var(--black); color: var(--text); padding: 9px 10px; font: inherit; font-size: 14px; }
@@ -43,10 +50,28 @@
 .provider-form footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 20px; }
 .provider-form .delete-provider { margin-left: auto; color: var(--red); }
 .settings-status { font-size: 13px; color: var(--orange); }
+.usage-help p { color: var(--muted); font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
+.usage-help h4 { margin: 22px 0 12px; font-size: 14px; }
+.keyboard-toggle { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.7; cursor: pointer; }
+.keyboard-toggle input { flex-shrink: 0; margin-top: 4px; accent-color: var(--orange); }
+.shortcut-list { margin: 14px 0; }
+.shortcut-list > div { display: grid; grid-template-columns: 62px minmax(0,1fr); gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line-soft); font-size: 12px; }
+.shortcut-list dt, .shortcut-list dd { margin: 0; overflow-wrap: anywhere; }
+.shortcut-list kbd { display: inline-block; min-width: 24px; padding: 2px 5px; border: 1px solid var(--line); background: var(--ink-raised); text-align: center; font-family: var(--font-ui); }
+.watchlist-backup p { color: var(--muted); font-size: 13px; line-height: 1.7; overflow-wrap: anywhere; }
+.backup-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.settings-dialog .backup-actions button:disabled { opacity: .5; cursor: default; }
+.backup-preview { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 16px; }
+.backup-preview h4 { margin: 0 0 8px; }
+.backup-preview > small { display: block; color: var(--dim); overflow-wrap: anywhere; }
+.backup-preview ul { max-height: 200px; overflow-y: auto; padding-left: 20px; font-size: 12px; line-height: 1.8; }
+.backup-preview li { overflow-wrap: anywhere; }
+.backup-preview li span { color: var(--muted); }
 .ai-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .ai-controls select, .ai-controls button { min-width: 0; min-height: 36px; max-width: 220px; border: 1px solid var(--line); padding: 7px 10px; background: var(--ink); color: var(--text); font: inherit; font-size: 12px; }
 .ai-controls button { cursor: pointer; }
-.ai-controls button:disabled { cursor: wait; opacity: .65; }
+.ai-controls button:disabled { cursor: default; opacity: .65; }
+.ai-controls button[aria-busy='true'] { cursor: wait; }
 button.ai-run, .settings-dialog button.ai-run { border-color: var(--orange); color: var(--orange); }
 .analysis-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 18px; border-bottom: 1px solid var(--line-soft); }
 .analysis-toolbar > small { color: var(--muted); font-size: 11px; }
@@ -63,6 +88,7 @@ button.ai-run, .settings-dialog button.ai-run { border-color: var(--orange); col
 .analysis-points button { display: flex; align-items: center; gap: 7px; border: 1px solid var(--line); background: transparent; color: var(--text); padding: 8px 10px; cursor: pointer; font-size: 12px; }
 .analysis-points b { color: var(--orange); }
 .analysis-points small { color: var(--muted); }
+.analysis-points button:disabled { opacity: .6; cursor: default; }
 .chart-trendline, .chart-trend-keys button { --trend-color: var(--indicator-blue); color: var(--trend-color); }
 .chart-trendline.resistance, .chart-trend-keys button.resistance { --trend-color: var(--indicator-purple); }
 .chart-trendline { cursor: pointer; }

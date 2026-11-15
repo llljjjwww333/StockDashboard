@@ -188,10 +188,45 @@ class AnalysisTests(unittest.IsolatedAsyncioTestCase):
     async def test_news_analysis_respects_current_filter(self):
         service = self.service()
         with patch("app.services.analysis_service.request_model", return_value={"summary": "news", "drivers": ["fact"]}):
-            result = await analyze_market(AnalysisRequest(settings=config(), scope="news", query="economy", news_source="Fixture"), service)
+            result = await analyze_market(AnalysisRequest(settings=config(), scope="news", query="  economy  ", news_source="Fixture"), service)
         self.assertEqual(result.context["news_count"], 1)
         self.assertEqual(result.annotations, [])
         service.get_historical_data.assert_not_called()
+
+    async def test_chart_analysis_uses_browser_prices_and_preserves_history_basis(self):
+        service = self.service()
+        points = [point.model_dump() for point in bars(2)]
+
+        def model(settings, system, evidence):
+            self.assertEqual(evidence["bars"][0]["price"], points[0]["close"])
+            self.assertNotIn("open", evidence["bars"][0])
+            self.assertTrue(evidence["history_stale"])
+            self.assertEqual(evidence["indicators"], {"ma60": 99.75, "macd_histogram": None, "range_change_percent": 0.99})
+            return {"summary": "Snapshot analysis", "annotations": [{"id": evidence["candidates"][0]["id"]}]}
+
+        with patch("app.services.analysis_service.request_model", side_effect=model):
+            result = await analyze_market(AnalysisRequest(settings=config(), scope="chart", ticker="600519", period="1d", interval="1m",
+                chart_history={"data": points, "source": "Browser fixture", "price_type": "snapshot", "adjustment": "none", "stale": True,
+                               "indicators": {"ma60": 99.75, "macd_histogram": None}}), service)
+        self.assertEqual(result.context["source"], "Browser fixture")
+        self.assertEqual(result.context["price_type"], "snapshot")
+        self.assertEqual(result.context["adjustment"], "none")
+        service.get_historical_data.assert_not_awaited()
+
+    async def test_news_analysis_uses_selected_snapshot_without_fetching_another_feed(self):
+        service = self.service()
+        news = {"title": "Selected story", "summary": "Visible evidence", "published_at": "2026-11-01T09:00:00Z",
+                "source": "Browser fixture", "market": "CN"}
+
+        def model(settings, system, evidence):
+            self.assertEqual(evidence["news"], [{**news, "url": None}])
+            return {"summary": "Snapshot analysis"}
+
+        with patch("app.services.analysis_service.request_model", side_effect=model):
+            result = await analyze_market(AnalysisRequest(settings=config(), scope="news", news_items=[news]), service)
+        self.assertEqual(result.context["news_count"], 1)
+        self.assertEqual(result.context["as_of"], news["published_at"])
+        service.get_finance_news.assert_not_awaited()
 
     async def test_english_request_sets_model_output_language(self):
         def model(settings, system, evidence):

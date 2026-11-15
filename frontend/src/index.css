@@ -104,7 +104,10 @@ input { border-radius: 0; }
 button { appearance: none; }
 
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
   outline: 1px solid var(--orange);
   outline-offset: 2px;
 }
