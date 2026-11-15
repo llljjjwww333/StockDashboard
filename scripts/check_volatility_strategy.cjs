@@ -33,6 +33,7 @@ const base = process.env.PREVIEW_URL || 'http://127.0.0.1:5176';
   await page.getByRole('button',{name:'运行回测',exact:true}).waitFor({timeout:90000});
   await page.waitForFunction(()=>!document.querySelector('button.strategy-run')?.disabled,null,{timeout:90000});
   assert.equal(await page.getByLabel('开始日期',{exact:true}).inputValue(),'2018-03-06');
+  assert((await page.getByLabel('历史范围',{exact:true}).innerText()).includes('指定数据区间'));
   assert.equal(await page.getByLabel('单边费率（基点）',{exact:true}).inputValue(),'10');
   await page.getByRole('button',{name:'运行回测',exact:true}).click();
   await page.getByRole('button',{name:'保存结果',exact:true}).waitFor({timeout:30000});

@@ -83,7 +83,7 @@ export function StrategyResearchView({ strategy, onEdit }: { strategy: Mandate; 
     {!ready ? <div className="strategy-empty"><p>{strategy.execution ? '规则待更新' : '待生成规则'}</p><button onClick={onEdit}>完善策略规则</button></div> :
       <form className="strategy-settings backtest-settings" onSubmit={e => { e.preventDefault(); if (range?.status === 'ready') calculate(); }}>
         <div className="backtest-environment">
-          <label>历史范围<select aria-label="历史范围" value={period} onChange={e => changePeriod(e.target.value as '1y' | '3mo')}><option value="1y">1年</option><option value="3mo">3月</option></select></label>
+          <label>历史范围<select aria-label="历史范围" disabled={Boolean(strategy.execution?.dataStartDate && strategy.execution?.dataEndDate)} value={period} onChange={e => changePeriod(e.target.value as '1y' | '3mo')}>{strategy.execution?.dataStartDate && strategy.execution?.dataEndDate ? <option value={period}>指定数据区间</option> : <><option value="1y">1年</option><option value="3mo">3月</option></>}</select></label>
           <label>开始日期<input aria-label="开始日期" type="date" value={environment.startDate} onChange={e => changeEnvironment({ startDate: e.target.value })} /></label>
           <label>结束日期<input aria-label="结束日期" type="date" value={environment.endDate} onChange={e => changeEnvironment({ endDate: e.target.value })} /></label>
           {numeric('capital', '初始资金', 100, 1e9, .01)}{numeric('feeBps', '单边费率（基点）', 0, 100, .1)}{numeric('slippageBps', '单边滑点（基点）', 0, 100, .1)}
