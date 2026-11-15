@@ -128,7 +128,7 @@ export function applyStockTarget(input: Portfolio, binding: StockBinding, weight
   const currentWeight = (holding?.shares ?? 0) * quote.price / equity * 100, aboveLimit = currentWeight > bindingPositionLimit(binding) + 1e-8;
   // Staged targets can encode an exact partial-exit quantity or validated initial lot.
   const desired = Math.floor(equity * weight / 100 / quote.price / unit + 1e-9) * unit;
-  const delta = binding.config.plan ? desired - (holding?.shares ?? 0) : rebalanceQuantity(input.cash, holding?.shares ?? 0, quote.price, weight,
+  const delta = binding.config.plan && weight < bindingPositionLimit(binding) - 1e-8 ? desired - (holding?.shares ?? 0) : rebalanceQuantity(input.cash, holding?.shares ?? 0, quote.price, weight,
     binding.config.feeBps, binding.config.slippageBps, unit, equity);
   if (binding.config.allocation && weight > 0 && !aboveLimit && Math.abs(weight - currentWeight) <= binding.config.allocation.rebalanceThresholdPct) return input;
   if (!delta || !binding.config.plan && !binding.config.allocation && holding && weight > 0 && !aboveLimit && Math.abs(delta) * quote.price < equity * .005) return input;

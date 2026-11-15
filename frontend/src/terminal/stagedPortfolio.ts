@@ -1,5 +1,5 @@
 import type { Portfolio, StockBinding } from './portfolio';
-import { portfolioEquity } from './portfolio.ts';
+import { portfolioEquity, bindingPositionLimit } from './portfolio.ts';
 import type { HistoryPoint, Quote } from './types';
 import { completedDailyBars, previousTradingDay } from './dailyHistory.ts';
 import { exchangeDay } from './paperTrading.ts';
@@ -22,8 +22,9 @@ export function stagedPortfolioDecision(p:Portfolio,b:StockBinding,input:History
  if(bars.length<=stagedWarmup(plan)||bars.at(-1)!.timestamp.slice(0,10)!==last)throw new Error('等待完整分批策略日线与预热数据');
  if(bars.some((bar,i)=>[bar.open,bar.high,bar.low,bar.close,bar.volume].some(v=>!Number.isFinite(v))||bar.close<=0||bar.high<Math.max(bar.open,bar.close)||bar.low>Math.min(bar.open,bar.close)||i>0&&bars[i-1].timestamp.slice(0,10)===bar.timestamp.slice(0,10)))throw new Error('分批策略日线无效');
  const holding=p.positions.find(h=>h.ticker===b.ticker),equity=portfolioEquity(p,quotes),price=quotes[b.ticker]?.price??bars.at(-1)!.close,current=(holding?.shares??0)*price/equity*100;
- const state=stagedHoldingState(p,b),evaluator=stagedEvaluator(bars,plan);let decision=evaluator.decide(bars.length-1,{...state,positionPct:current});
+ const limit=bindingPositionLimit(b),state=stagedHoldingState(p,b),evaluator=stagedEvaluator(bars,plan);let decision=evaluator.decide(bars.length-1,{...state,positionPct:current});
  if(state.pendingReduction&&holding&&!decision?.urgent)decision={stage:state.pendingReduction.stage,label:'继续完成本轮减仓',action:'reduce',value:1-state.pendingReduction.targetShares/holding.shares,urgent:false};
+ if(!decision&&current>limit+.01)decision={stage:'cap',label:'仓位执行上限再平衡',action:'target',value:limit,urgent:false};
  let reductionTargetShares:number|undefined;
  let target=current;
  if(decision){
@@ -37,5 +38,5 @@ export function stagedPortfolioDecision(p:Portfolio,b:StockBinding,input:History
    target=((holding?.shares??0)+qty)*price/equity*100;
   }
  }
- return {target:Math.max(0,Math.min(b.allocationPct,plan.maxPositionPct,target)),decision,reductionTargetShares,signal:last,planKey:state.planKey,diagnostics:evaluator.diagnostics(bars.length-1)};
+ return {target:Math.max(0,Math.min(limit,target)),decision,reductionTargetShares,signal:last,planKey:state.planKey,diagnostics:evaluator.diagnostics(bars.length-1)};
 }

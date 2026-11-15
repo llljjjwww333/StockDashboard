@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {createPortfolio,defaultMandate,bindStockStrategy,bindingExecutionMode,bindingPositionLimit,strategyPositionLimit,applyStockTarget,portfolioEquity,executePortfolioOrder} from '../src/terminal/portfolio.ts';
+import {stagedPortfolioDecision} from '../src/terminal/stagedPortfolio.ts';
 import {strategyDefaults} from '../src/terminal/backtest.ts';
 const now=new Date('2026-11-15T13:00:00Z');
 const quote={ticker:'BTCUSDT',price:100,volume:10000,change_percent:0,source:'fixture',as_of:now.toISOString()};
@@ -76,4 +77,19 @@ test('staged share quantities stay exact while new buys remain inside the cost-a
 test('old generated snapshots cannot bypass their saved mandate cap with a larger execution field',()=>{
  const {binding}=setup({config:{...strategyDefaults,positionPct:100},mandate:{...defaultMandate,maxSingle:20,maxGross:18,execution:{...strategyDefaults,positionPct:100}}});
  assert.equal(bindingPositionLimit(binding),18);
+});
+
+test('a reduced binding budget triggers staged de-risking even without another buy or sell signal',()=>{
+ const plan={...JSON.parse(fs.readFileSync(new URL('../../backend/tests/fixtures/staged_plan.json',import.meta.url),'utf8')),trimMaEnabled:false,trimRsiEnabled:false};
+ const {binding,account}=setup({allocationPct:10,config:{...strategyDefaults,kind:'custom',rules:null,plan,positionPct:25,feeBps:100,slippageBps:100}});
+ const invested=executePortfolioOrder(account,'BTCUSDT','buy',120,quote,'existing holding','BTC',binding.config,now);
+ const data=Array.from({length:300},(_,i)=>({timestamp:new Date(Date.UTC(2026,10,15)-86400000*(300-i)).toISOString(),open:100,high:101,low:99,close:100,volume:1000}));
+ const staged=stagedPortfolioDecision(invested,binding,data,quotes,now);
+ assert.equal(staged.decision.stage,'cap');assert.equal(staged.target,10);
+ const reduced=applyStockTarget(invested,binding,staged.target,quotes,staged.decision.label,now);
+ assert.equal(reduced.orders.at(-1).side,'sell');assert(weight(reduced)<10.000001);
+ const stopPlan={...plan,stopLossPct:8},stopBinding={...binding,config:{...binding.config,plan:stopPlan}};
+ const fallen=data.map(p=>({...p,open:80,high:81,low:79,close:80}));
+ const exit=stagedPortfolioDecision(invested,stopBinding,fallen,quotes,now);
+ assert.equal(exit.decision.urgent,true);assert.equal(exit.target,0);
 });

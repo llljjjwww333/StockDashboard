@@ -10,6 +10,8 @@ const base=process.env.PREVIEW_URL||'http://127.0.0.1:5176';
  const strategy=withExecution({...defaultMandate,id:'binding-cap-fixture',name:'仓位上限核对',goal:'Close > SMA20',instrument,maxSingle:20,maxGross:20,news:false},
   {...strategyDefaults,kind:'custom',rules:defaultCustomRules(),positionPct:20,sessionsPerYear:365,feeBps:100,slippageBps:100});
  const original=JSON.parse(fs.readFileSync('reports/BTCUSDT-low-volatility.strategy.json','utf8'));
+ const plan={...JSON.parse(fs.readFileSync('backend/tests/fixtures/staged_plan.json','utf8')),trimMaEnabled:false,trimRsiEnabled:false,includeNews:false};
+ const stagedStrategy=withExecution({...strategy,id:'staged-cap-fixture',maxSingle:25,maxGross:25},{...strategy.execution,plan,rules:null,positionPct:25});
  const browser=await chromium.launch({channel:'msedge',headless:true}),errors=[];
  const bars=Array.from({length:300},(_,i)=>{
   const date=new Date();date.setUTCHours(0,0,0,0);date.setUTCDate(date.getUTCDate()-300+i);
@@ -17,10 +19,11 @@ const base=process.env.PREVIEW_URL||'http://127.0.0.1:5176';
  });
  const profile={activeId:'cap-fixture',profiles:[{id:'cap-fixture',name:'规则边界测试',baseUrl:'https://fixture.invalid/v1',model:'cap-test',protocol:'chat',apiKey:'fixture-only',rememberKey:true,updatedAt:1}]};
  const contexts=[];
- async function setup({mode='rules',volatility=false,api=false,modelWeight=15,prior=false}={}){
-  const saved=volatility?original:strategy;
-  const binding={ticker:'BTCUSDT',name:'Bitcoin',label:saved.name,mode,mandate:mode==='ai'&&!volatility?{...saved,maxGross:15}:saved,config:saved.execution,profileId:api?'cap-fixture':'',allocationPct:60,enabled:false};
+ async function setup({mode='rules',volatility=false,api=false,modelWeight=15,prior=false,staged=false}={}){
+  const saved=staged?stagedStrategy:volatility?original:strategy;
+  const binding={ticker:'BTCUSDT',name:'Bitcoin',label:saved.name,mode,mandate:mode==='ai'&&!volatility?{...saved,maxGross:15}:saved,config:saved.execution,profileId:api?'cap-fixture':'',allocationPct:staged?10:60,enabled:false};
   let account=bindStockStrategy(createPortfolio('绑定上限检查',100000,'CRYPTO'),binding);
+  if(staged)account=executePortfolioOrder(account,'BTCUSDT','buy',120,{ticker:'BTCUSDT',price:100,volume:1000,change_percent:0,source:'fixture',as_of:new Date().toISOString()},'existing staged holding','BTC',binding.config);
   if(prior){
    const stamp=new Date().toISOString(),quote={ticker:'BTCUSDT',price:100,volume:1000,change_percent:0,source:'fixture',as_of:stamp};
    account=executePortfolioOrder(account,'BTCUSDT','buy',600,quote,'old oversized entry','BTC',binding.config);
@@ -89,6 +92,11 @@ const base=process.env.PREVIEW_URL||'http://127.0.0.1:5176';
   await prior.page.waitForFunction(()=>JSON.parse(localStorage.getItem('marketdesk:crypto:portfolios:v2'))[0].reviews.length>1,null,{timeout:30000});
   const corrected=(await prior.state())[0];assert.equal(corrected.reviews.at(-1).decision.targets[0].weight_pct,20);
   assert.equal(corrected.orders.at(-1).side,'sell');assert(corrected.positions[0].shares*100/portfolioEquity(corrected,{BTCUSDT:{price:100}})*100<20.000001);
+  const staged=await setup({staged:true});await staged.page.getByRole('button',{name:'启动全部',exact:true}).click();
+  await staged.page.waitForFunction(()=>JSON.parse(localStorage.getItem('marketdesk:crypto:portfolios:v2'))[0].reviews.length>0,null,{timeout:30000});
+  const stagedAccount=(await staged.state())[0];assert.equal(stagedAccount.reviews[0].provider,'分批规则引擎');assert.equal(stagedAccount.reviews[0].decision.targets[0].weight_pct,10);
+  assert.equal(stagedAccount.orders.at(-1).side,'sell');assert(stagedAccount.positions[0].shares*100/portfolioEquity(stagedAccount,{BTCUSDT:{price:100}})*100<10.000001);
+  assert.equal(staged.ai.length,0);
   const ai=await setup({mode:'ai',api:true});await ai.page.getByRole('button',{name:'启动全部',exact:true}).click();
   await ai.page.waitForFunction(()=>JSON.parse(localStorage.getItem('marketdesk:crypto:portfolios:v2'))[0].reviews.length>0,null,{timeout:30000});
   assert.equal(ai.ai.length,1);assert.equal(ai.ai[0].max_single_pct,15);assert.equal(ai.ai[0].max_gross_pct,15);
@@ -111,7 +119,7 @@ const base=process.env.PREVIEW_URL||'http://127.0.0.1:5176';
   await vol.page.getByLabel('绑定资金比例',{exact:true}).fill('45');await vol.page.getByRole('button',{name:'保存',exact:true}).click();
   assert.equal((await vol.state())[0].bindings[0].mode,'rules');assert.equal(vol.ai.length,0);
   assert.deepEqual(errors,[]);
-  const report={url:base,marketAndModelFixtures:true,legacyBudgetPreserved:true,previousDailyReviewRechecked:true,ruleTargetCappedAt20:true,postCostWeightWithinCap:true,explicitModeSelection:true,missingAiProfileBlocksOnlyAi:true,deploymentCapValidated:true,aiRequestLimit15:true,oversizedAiTargetRejected:true,aiModePreservedAfterReload:true,legacyVolatilityRunsAsRules:true,errors};
+  const report={url:base,marketAndModelFixtures:true,stagedBudgetReduction:true,legacyBudgetPreserved:true,previousDailyReviewRechecked:true,ruleTargetCappedAt20:true,postCostWeightWithinCap:true,explicitModeSelection:true,missingAiProfileBlocksOnlyAi:true,deploymentCapValidated:true,aiRequestLimit15:true,oversizedAiTargetRejected:true,aiModePreservedAfterReload:true,legacyVolatilityRunsAsRules:true,errors};
   fs.writeFileSync(process.env.REPORT_PATH||'reports/binding-limits-check.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));
  }finally{await Promise.all(contexts.map(c=>c.close()));await browser.close();}
 })().catch(e=>{console.error(e);process.exitCode=1;});

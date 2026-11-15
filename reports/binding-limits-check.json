@@ -1,6 +1,7 @@
 {
   "url": "http://127.0.0.1:5176",
   "marketAndModelFixtures": true,
+  "stagedBudgetReduction": true,
   "legacyBudgetPreserved": true,
   "previousDailyReviewRechecked": true,
   "ruleTargetCappedAt20": true,
