@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { Quote } from '../terminal/types';
-import { isOlderQuote } from '../lib/quotes';
+import { mergeStoredQuotes } from '../lib/quotes';
 import { mergeWatchlist } from '../lib/watchlistBackup';
 import { normalizeWatchlistState, createWatchlistStorage, type WatchlistStorageIssue } from '../lib/watchlistPersistence';
 
@@ -43,6 +43,7 @@ interface StockQuoteStore {
   seedQuote: (ticker: string, payload: StockQuote) => void;
   removeQuote: (ticker: string) => void;
   updateStockQuote: (ticker: string, payload: StockQuote) => void;
+  updateStockQuotes: (updates: Record<string, StockQuote>) => void;
   markQuoteStale: (ticker: string, requestStartedAt: number) => void;
 }
 
@@ -85,31 +86,13 @@ export const useStockQuoteStore = create<StockQuoteStore>()((set) => ({
     }),
   updateStockQuote: (ticker, payload) =>
     set((state) => {
-      const current = state.quotes[ticker];
-      if (isOlderQuote(payload, current)) return state;
-      const streamConfirmedAt = payload.streamConfirmedAt === undefined ? current?.streamConfirmedAt : payload.streamConfirmedAt;
-      if (
-        current &&
-        current.price === payload.price &&
-        current.changePercent === payload.changePercent &&
-        current.volume === payload.volume &&
-        current.asOf === payload.asOf &&
-        current.source === payload.source &&
-        current.stale === payload.stale &&
-        current.fetchedAt === payload.fetchedAt &&
-        current.receivedAt === payload.receivedAt &&
-        current.streamConfirmedAt === streamConfirmedAt &&
-        current.snapshot === payload.snapshot
-      ) {
-        return state;
-      }
-
-      return {
-        quotes: {
-          ...state.quotes,
-          [ticker]: { ...payload, streamConfirmedAt },
-        },
-      };
+      const quotes = mergeStoredQuotes(state.quotes, { [ticker]: payload });
+      return quotes === state.quotes ? state : { quotes };
+    }),
+  updateStockQuotes: updates =>
+    set(state => {
+      const quotes = mergeStoredQuotes(state.quotes, updates);
+      return quotes === state.quotes ? state : { quotes };
     }),
 }));
 

@@ -2,14 +2,17 @@ import { isCryptoTicker, isChinaTicker } from '../lib/instrumentIdentity.ts';
 import { getLocale, t, useLanguage } from '../lib/i18n';
 import { useMarketPhase, useQuoteFreshness } from './useMarketPhase';
 import type { StockQuote } from '../store/stockStore';
+import { useMemo } from 'react';
 
 type QuoteTimeProps = { ticker: string; asOf: string | null; source: string | null };
 
 export function QuoteTime({ ticker, asOf, source }: QuoteTimeProps) {
-  return <small title={source ?? undefined}>{asOf ? <time dateTime={asOf}>{new Intl.DateTimeFormat(getLocale(), {
-    timeZone: isCryptoTicker(ticker) ? 'UTC' : isChinaTicker(ticker) ? 'Asia/Shanghai' : 'America/New_York',
+  const locale = getLocale(), timeZone = isCryptoTicker(ticker) ? 'UTC' : isChinaTicker(ticker) ? 'Asia/Shanghai' : 'America/New_York';
+  const format = useMemo(() => new Intl.DateTimeFormat(locale, {
+    timeZone,
     month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-  }).format(new Date(asOf))}</time> : '--'}</small>;
+  }), [locale, timeZone]);
+  return <small title={source ?? undefined}>{asOf ? <time dateTime={asOf}>{format.format(new Date(asOf))}</time> : '--'}</small>;
 }
 
 export function QuoteFreshnessBadge({ ticker, quote }: { ticker: string; quote?: StockQuote }) {

@@ -1,14 +1,14 @@
 import { create } from 'zustand';
 import type { CandleEvent, DepthEvent } from '../lib/cryptoStream';
 
-type StreamState = { depth: Record<string, DepthEvent>; candles: Record<string, CandleEvent[]> };
+type StreamState = { depth: Record<string, DepthEvent & { receivedAt: number }>; candles: Record<string, CandleEvent[]> };
 export const useCryptoStreamStore = create<StreamState>(() => ({ depth: {}, candles: {} }));
 
-export function receiveDepth(event: DepthEvent) {
+export function receiveDepth(event: DepthEvent, receivedAt = Date.now()) {
   useCryptoStreamStore.setState(state => {
     const previous = state.depth[event.ticker];
     if (previous && previous.sequence >= event.sequence) return state;
-    return { depth: { [event.ticker]: event } };
+    return { depth: { [event.ticker]: { ...event, receivedAt } } };
   });
 }
 

@@ -21,6 +21,7 @@
 .book-rows { display: flex; flex-direction: column; }
 .book-row { position: relative; display: grid; grid-template-columns: 34px 1fr 1fr; align-items: center; gap: 6px; min-height: 27px; font-size: 12px; font-variant-numeric: tabular-nums; }
 .book-row > i { position: absolute; inset: 2px 0 2px auto; background: currentColor; opacity: .07; pointer-events: none; }
+.book-row > i { transition: width 80ms linear; }
 .book-side.ask { color: var(--down); display: flex; flex-direction: column-reverse; order: -1; padding-bottom: 7px; margin-bottom: 7px; border-bottom: 1px solid var(--line-soft); }
 .book-side.bid { color: var(--up); }
 .book-row > span { color: var(--muted); font-size: 11px; }

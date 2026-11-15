@@ -1,0 +1,35 @@
+{
+  "url": "http://127.0.0.1:5176",
+  "viewport": "1440x850",
+  "before": {
+    "scroll": 600,
+    "stats": 176,
+    "chart": 673,
+    "book": 682
+  },
+  "afterFailure": {
+    "scroll": 600,
+    "stats": 176,
+    "chart": 673,
+    "book": 682
+  },
+  "afterRecovery": {
+    "scroll": 600,
+    "stats": 176,
+    "chart": 673,
+    "book": 682
+  },
+  "seconds": 7.405,
+  "messages": {
+    "update": 217,
+    "depth": 73,
+    "candle": 4
+  },
+  "depthHz": 9.86,
+  "distinctPrices": 11,
+  "scrollRange": 0,
+  "contentMovement": 0,
+  "reconnect": true,
+  "candlesRendered": true,
+  "errors": []
+}

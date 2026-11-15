@@ -8,6 +8,8 @@ import { isActivePhase, marketPhase } from '../terminal/marketSession';
 import { isCandleEvent, isDepthEvent, type DepthEvent } from '../lib/cryptoStream';
 import { receiveCandle, receiveDepth } from '../store/cryptoStreamStore';
 import type { Quote } from '../terminal/types';
+import type { StockQuote } from '../store/stockStore';
+import { LatestFrame } from '../lib/latestFrame';
 
 const CONNECT_TIMEOUT_MS = 90000;
 const HEARTBEAT_MS = 15000;
@@ -35,22 +37,26 @@ class StockWebSocketService {
   private marketTickers: string[] = [];
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private pendingQuotes = new Map<string, { data: Quote; at: number }>();
-  private pendingDepth: DepthEvent | null = null;
+  private depthFrame = new LatestFrame<DepthEvent & { receivedAt: number }>(event => {
+    if (event.ticker === this.activeTicker && this.subscribedTickers.has(event.ticker)) receiveDepth(event, event.receivedAt);
+  }, undefined, undefined, (next, current) => next.ticker !== current.ticker || next.sequence > current.sequence);
   private scheduleFlush() {
     if (this.flushTimer !== null) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
+      const updates: Record<string, StockQuote> = {};
+      let healthChanged = false;
       for (const [ticker, pending] of this.pendingQuotes) {
         if (!this.subscribedTickers.has(ticker)) continue;
         const quote = toStoredQuote(pending.data, pending.at);
         const failed = this.failedTickers.has(ticker);
         if (quote.stale) this.failedTickers.add(ticker); else this.failedTickers.delete(ticker);
-        useStockQuoteStore.getState().updateStockQuote(ticker, { ...quote, streamConfirmedAt: quote.stale ? null : pending.at });
-        if (failed !== Boolean(quote.stale)) this.notifyHealth();
+        updates[ticker] = { ...quote, streamConfirmedAt: quote.stale ? null : pending.at };
+        healthChanged ||= failed !== Boolean(quote.stale);
       }
       this.pendingQuotes.clear();
-      if (this.pendingDepth) receiveDepth(this.pendingDepth);
-      this.pendingDepth = null;
+      useStockQuoteStore.getState().updateStockQuotes(updates);
+      if (healthChanged) this.notifyHealth();
     }, 100);
   }
   private listening = false;
@@ -79,7 +85,7 @@ class StockWebSocketService {
   private dropConnection() {
     if (this.flushTimer !== null) clearTimeout(this.flushTimer);
     this.flushTimer = null;
-    this.pendingQuotes.clear(); this.pendingDepth = null;
+    this.pendingQuotes.clear(); this.depthFrame.clear();
     this.clearConnectionTimer();
     if (this.reconnectTimeout) { clearTimeout(this.reconnectTimeout); this.reconnectTimeout = null; }
     const socket = this.socket;
@@ -157,8 +163,7 @@ class StockWebSocketService {
             this.pendingQuotes.set(message.data.ticker, { data: message.data, at: this.lastMessageAt });
             this.scheduleFlush();
           } else if (message.type === 'depth' && isDepthEvent(message.data) && message.data.ticker === this.activeTicker) {
-            this.pendingDepth = message.data;
-            this.scheduleFlush();
+            this.depthFrame.offer({ ...message.data, receivedAt: this.lastMessageAt });
           } else if (message.type === 'candle' && isCandleEvent(message.data) && message.data.ticker === this.activeTicker && message.data.interval === this.activeInterval) {
             receiveCandle(message.data);
           } else if (message.type === 'error' && this.subscribedTickers.has(message.data?.ticker)) {
@@ -212,6 +217,7 @@ class StockWebSocketService {
   setActiveTicker(ticker: string | null, interval = '1m') {
     if (this.activeTicker === ticker && this.activeInterval === interval) return;
     this.activeTicker = ticker;
+    this.depthFrame.clear();
     this.activeInterval = interval;
     this.updateSubscriptions();
   }

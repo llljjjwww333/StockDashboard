@@ -36,3 +36,19 @@ export function isOlderQuote(incoming: StockQuote, current?: StockQuote) {
   if (Number.isFinite(nextFetch) !== Number.isFinite(currentFetch)) return Number.isFinite(currentFetch);
   return Boolean(incoming.stale && !current.stale && current.snapshot && incoming.snapshot !== current.snapshot);
 }
+
+export function mergeStoredQuotes(current: Record<string, StockQuote>, updates: Record<string, StockQuote>) {
+  let next = current;
+  for (const [ticker, payload] of Object.entries(updates)) {
+    const previous = current[ticker];
+    if (isOlderQuote(payload, previous)) continue;
+    const streamConfirmedAt = payload.streamConfirmedAt === undefined ? previous?.streamConfirmedAt : payload.streamConfirmedAt;
+    if (previous && previous.price === payload.price && previous.changePercent === payload.changePercent &&
+      previous.volume === payload.volume && previous.asOf === payload.asOf && previous.source === payload.source &&
+      previous.stale === payload.stale && previous.fetchedAt === payload.fetchedAt && previous.receivedAt === payload.receivedAt &&
+      previous.streamConfirmedAt === streamConfirmedAt && previous.snapshot === payload.snapshot) continue;
+    if (next === current) next = { ...current };
+    next[ticker] = { ...payload, streamConfirmedAt };
+  }
+  return next;
+}

@@ -1,0 +1,26 @@
+{
+  "url": "http://127.0.0.1:5176",
+  "cpuThrottle": 4,
+  "realSeconds": 20,
+  "transportIntervals": {
+    "count": 194,
+    "p50": 99.7,
+    "p95": 230.2,
+    "max": 344.1,
+    "gapsOver500ms": 0
+  },
+  "paintIntervals": {
+    "count": 182,
+    "p50": 100.5,
+    "p95": 236.8,
+    "max": 352.9,
+    "gapsOver500ms": 0
+  },
+  "burstMessages": 200,
+  "burstPaints": 1,
+  "newestQuantityExact": true,
+  "clockSkewHandled": true,
+  "unexpectedDepthPolls": 0,
+  "rows": 20,
+  "errors": []
+}

@@ -223,10 +223,13 @@ export function useCryptoDepth(ticker: string, enabled: boolean) {
     const timer = setInterval(() => setClock(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [enabled]);
-  const healthy = Boolean(stream && clock - Date.parse(stream.received_at) < 5000);
+  const healthy = Boolean(stream && clock - stream.receivedAt < 5000);
   const fallback = useResource<NonNullable<Quote['order_book']>>(enabled ? `/stocks/${ticker}/depth` : null,
     2000, '盘口暂不可用', enabled && !healthy);
-  return { ...fallback, data: stream && (healthy || !fallback.data) ? stream.book : fallback.data };
+  const useStream = stream && (healthy || !fallback.data || stream.receivedAt > (fallback.savedAt ?? 0));
+  return { ...fallback, data: useStream ? stream.book : fallback.data,
+    sequence: useStream ? stream.sequence : null,
+    asOf: useStream ? stream.received_at : fallback.savedAt ? new Date(fallback.savedAt).toISOString() : null };
 }
 
 export function useMarketOverview(market: MarketType, enabled = true) {
