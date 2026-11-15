@@ -15,6 +15,15 @@ export function executableStrategy(strategy: Mandate) {
   if (strategy.instrument.market === 'CRYPTO' && strategy.execution.allocation && strategy.execution.allocation.annualization !== 365) return false;
   try { const config = validateStrategyConfig({ ...strategy.execution, positionPct: strategy.maxSingle }); if (config.rules) validateStrategyRuleSemantics(config.rules); return true; } catch { return false; }
 }
+
+export function strategyExecutionMode(strategy: Mandate): 'rules' | 'ai' | null {
+  if (!strategy.execution) return 'ai';
+  return executableStrategy(strategy) ? 'rules' : null;
+}
+
+export function suggestedStrategyAllocation(strategy: Mandate | undefined, available: number) {
+  return Math.max(0, Math.min(strategy?.maxSingle ?? 30, available));
+}
 export function applyGeneratedStrategy(strategy: Mandate, instrument: WatchlistStock, value: unknown, language: 'zh' | 'en' = 'zh'): Mandate {
   if (!value || typeof value !== 'object') throw new Error('模型未返回完整策略和参数');
   const p = value as Record<string, unknown>;
@@ -30,7 +39,7 @@ export function applyGeneratedStrategy(strategy: Mandate, instrument: WatchlistS
   return withExecution({ ...next, sourceGoal:strategy.goal, goalMode: 'generated', goal:execution.plan?strategy.goal:describeStrategyGoal(instrument.ticker, execution, language) }, execution);
 }
 export function editStrategyExecution(strategy: Mandate, instrument: WatchlistStock, config: StrategyConfig, bind = false, language: 'zh' | 'en' = 'zh'): Mandate {
-  const canDescribe = strategy.goalMode === 'generated' && (bind || strategy.executionGoal === strategy.goal && strategy.executionTicker === instrument.ticker);
+  const canDescribe = bind || strategy.goalMode === 'generated' && strategy.executionGoal === strategy.goal && strategy.executionTicker === instrument.ticker;
   let next: Mandate = { ...strategy, instrument, execution: config, summary: undefined,
     executionGoal: strategy.execution && !bind ? strategy.executionGoal : strategy.goal,
     executionTicker: strategy.execution && !bind ? strategy.executionTicker : instrument.ticker,
@@ -40,7 +49,7 @@ export function editStrategyExecution(strategy: Mandate, instrument: WatchlistSt
       validateStrategyConfig(config);
       if (config.rules) validateStrategyRuleSemantics(config.rules);
       const goal = describeStrategyGoal(instrument.ticker, config, language);
-      next = { ...next, goal, executionGoal: goal, executionTicker: instrument.ticker };
+      next = { ...next, ...(bind ? { goalMode: 'generated' as const, sourceGoal: strategy.sourceGoal ?? strategy.goal } : {}), goal, executionGoal: goal, executionTicker: instrument.ticker };
     } catch { /* Keep the last description while the form is incomplete. */ }
   }
   return next;

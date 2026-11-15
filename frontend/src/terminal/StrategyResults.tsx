@@ -1,13 +1,13 @@
+import { StrategyTradeLedger } from './StrategyTradeLedger';
 import { useEffect, useRef, useState } from 'react';
 import { t, useLanguage } from '../lib/i18n';
-import type { BacktestResult, ExitReason } from './backtest';
+import type { BacktestResult } from './backtest';
 import { strategyDate as day, strategyName, strategyParameters, strategyPercent as pct } from './strategyPresentation';
 import { saveStrategyReport, strategyTradeCsv, useStrategyWorkspace, type StrategyReport } from './strategyWorkspace';
 import { getStrategy, regimeNames } from './strategyCatalog';
 import { downloadFile } from '../lib/downloadFile';
 import { StrategyDetails } from './StrategyDetails';
 
-const reasonName = (s: ExitReason) => ({ signal: '策略信号', stop: '收盘止损', profit: '收盘止盈', end: '期末清仓' })[s];
 
 export function StrategyResults({ report }: { report: StrategyReport }) {
   const { language } = useLanguage();
@@ -48,7 +48,7 @@ export function StrategyResults({ report }: { report: StrategyReport }) {
       <div className="strategy-report-actions"><button type="button" onClick={save}>{t('保存结果')}</button><details className="strategy-export"><summary>{t('导出')}</summary><div><button type="button" onClick={() => download(false)}>{t('导出完整报告')}</button><button type="button" onClick={() => download(true)}>{t('导出交易 CSV')}</button></div></details><details className="strategy-snapshot"><summary>{t('参数快照')}</summary><div className="strategy-snapshot-content"><dl>{([
         ['标的', s.instrument.ticker], ['策略参数', t(strategyName(s.config.kind)) + ' ' + strategyParameters(s.config)],
         ...getStrategy(s.config.kind)!.parameters.map(p => [p.label, s.config[p.key] ?? '—'] as [string, string | number]),
-        ['初始资金', money(s.config.capital)], [s.config.plan?'单股仓位上限':'开仓比例', (s.config.positionPct ?? 100) + '%'],
+        ['初始资金', money(s.config.capital)], [s.config.plan||s.config.allocation?'最大仓位':'开仓比例', (s.config.positionPct ?? 100) + '%'],
         ['单边费率（基点）', s.config.feeBps], ['单边滑点（基点）', s.config.slippageBps],
         ['收盘止损', (s.config.stopLossPct ?? 0) + '%'], ['收盘止盈', (s.config.takeProfitPct ?? 0) + '%'],
         ['交易单位', s.config.lotSize || t('可分割份额')], ['期末处理', t(s.config.liquidateEnd ? '期末清仓' : '期末按市值保留')],
@@ -64,8 +64,8 @@ export function StrategyResults({ report }: { report: StrategyReport }) {
     <div className="strategy-stats">{[4, 5, 8, 9, 10, 11].map(metric)}</div>
     <div className="strategy-tabs" role="group" aria-label={t('报告明细')}>{([['closed', '交易分析'], ['fills', '成交明细'], ['monthly', '月度收益'], ['account', '账户']] as const).map(([id, label]) => <button type="button" key={id} aria-pressed={tab === id} onClick={() => setTab(id)}>{t(label)}{id === 'closed' ? ' (' + r.closed.length + ')' : id === 'fills' ? ' (' + r.trades.length + ')' : ''}</button>)}</div>
     {tab === 'account' ? <div className="strategy-account"><span>{t('现金')} <b>{money(r.cash)}</b></span><span>{t('持仓数量')} <b>{money(r.shares)}</b></span><span>{t('未实现盈亏')} <b>{money(r.unrealizedPnl)}</b></span>{r.skippedEntries > 0 && <span>{t('跳过开仓')} <b>{r.skippedEntries}</b></span>}</div> : tab === 'monthly' ? <div className="strategy-table" tabIndex={0} role="region" aria-label={t('月度收益')}><table><thead><tr>{['月份', '策略收益', '买入持有', '收益差'].map(x => <th key={x}>{t(x)}</th>)}</tr></thead><tbody>{r.monthly.map(m => <tr key={m.month}><td>{m.month}</td><td>{pct(m.strategy)}</td><td>{pct(m.benchmark)}</td><td>{pct(m.strategy - m.benchmark)}</td></tr>)}</tbody></table></div>
-    : tab === 'closed' ? <div className="strategy-table" tabIndex={0} role="region" aria-label={t('交易分析')}><table><thead><tr>{['开仓日期', '平仓日期', '持有日', '净盈亏', '净收益率', '费用', '退出原因'].map(x => <th key={x}>{t(x)}</th>)}</tr></thead><tbody>{r.closed.map((trade, i) => <tr key={i}><td>{day(trade.entryDate)}</td><td>{day(trade.exitDate)}</td><td>{trade.sessions}</td><td>{money(trade.pnl)}</td><td>{pct(trade.returnPct)}</td><td>{money(trade.fees)}</td><td>{t(reasonName(trade.reason))}</td></tr>)}</tbody></table>{!r.closed.length && <p role="status">{t('暂无已平仓交易')}</p>}</div>
-    : <div className="strategy-table" tabIndex={0} role="region" aria-label={t('交易记录')}><table><thead><tr>{['信号日期', '成交日期', '方向', '成交价', '数量', '费用', '现金', '原因'].map(x => <th key={x}>{t(x)}</th>)}</tr></thead><tbody>{r.trades.map((trade, i) => <tr key={i}><td>{day(trade.signalDate)}</td><td>{day(trade.date)}</td><td>{t(trade.side === 'buy' ? '买入' : '卖出')}</td><td>{money(trade.price)}</td><td>{money(trade.shares)}</td><td>{money(trade.fee)}</td><td>{money(trade.cash)}</td><td>{trade.detail??t(reasonName(trade.reason))}</td></tr>)}</tbody></table>{!r.trades.length && <p role="status">{t('暂无成交')}</p>}</div>}
+    : tab === 'closed' ? <StrategyTradeLedger key="closed" ticker={s.instrument.ticker} locale={language==='en'?'en-US':'zh-CN'} closed={r.closed}/>
+    : <StrategyTradeLedger key="trades" ticker={s.instrument.ticker} locale={language==='en'?'en-US':'zh-CN'} trades={r.trades}/>}
   </>;
 }
 

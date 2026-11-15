@@ -336,3 +336,13 @@
  .workbench-edit-actions { gap:6px; }
  .workbench-edit-actions button { padding:7px 9px; }
 }
+.workbench-editor-toolbar { position: sticky; top: 72px; z-index: 12; background: var(--ink); padding: 12px 0 0; margin-top: -12px; border-bottom: 1px solid var(--line); }
+.workbench-editor-toolbar .workbench-editor-heading { margin-bottom: 12px; }
+.workbench-editor-toolbar .workbench-edit-actions { margin-top: 0; padding-bottom: 12px; }
+.strategy-original-goal, .strategy-previous-parameters { margin-top: 16px; border: 1px solid var(--line); border-radius: 4px; padding: 12px; }
+.strategy-original-goal summary, .strategy-previous-parameters summary { cursor: pointer; color: var(--muted); }
+.strategy-original-goal pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.8; max-height: 360px; overflow: auto; }
+.strategy-previous-parameters > .strategy-definition-details { padding-top: 16px; }
+.binding-execution-mode { padding: 12px; background: var(--orange-soft); border-radius: 4px; }
+.binding-execution-mode strong { font-size: 13px; }.binding-execution-mode p { margin: 6px 0 0; color: var(--muted); line-height: 1.6; }
+@media (min-width: 1000px) { .workbench-library { position: sticky; top: 88px; align-self: start; max-height: calc(100dvh - 110px); overflow-y: auto; } }

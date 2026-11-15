@@ -1,8 +1,9 @@
 import type { StrategyConfig } from './backtest';
 import type { VolatilityAllocation } from './volatilityAllocation';
 
-export function StrategyAllocationEditor({ config, onChange }: { config: StrategyConfig; onChange: (config: StrategyConfig) => void }) {
+export function StrategyAllocationEditor({ config, onChange, onPositionChange }: { config: StrategyConfig; onChange: (config: StrategyConfig) => void; onPositionChange: (value: number) => void }) {
   const value = config.allocation;
+  const cap = Number.isFinite(config.positionPct) ? config.positionPct! : null;
   const update = (changes: Partial<VolatilityAllocation>) => value && onChange({ ...config, allocation: { ...value, ...changes } });
   return <section className="strategy-allocation" aria-label="动态仓位参数">
     <header><h3>仓位计算</h3><select aria-label="仓位计算方式" value={value ? 'volatility_target' : 'fixed'} onChange={e => onChange({ ...config,
@@ -10,8 +11,9 @@ export function StrategyAllocationEditor({ config, onChange }: { config: Strateg
         minPositionPct: 0, annualization: 365, ddof: 1, rebalanceThresholdPct: 0 } })}>
       <option value="fixed">固定仓位</option><option value="volatility_target">目标波动率动态仓位</option></select></header>
     {value && <>
-      <p className="allocation-formula">信号成立：w = min({config.positionPct}%, max({value.minPositionPct}%, {value.targetVolPct}% / σ{value.period}))；信号失效：w = 0%</p>
+      <p className="allocation-formula">信号成立：w = min({cap ?? '—'}%, max({value.minPositionPct}%, {value.targetVolPct}% / σ{value.period}))；信号失效：w = 0%</p>
       <div className="design-rule-parameters">
+        <label>最大目标仓位（%）<input type="number" aria-label="资金比例上限（%）" min={1} max={100} step={.1} value={cap ?? ''} onChange={e => onPositionChange(e.target.valueAsNumber)}/></label>
         {([['period','波动率回看（日）',2,200,1],['targetVolPct','目标年化波动率（%）',.01,100,.1],
           ['minPositionPct','最小仓位（%）',0,100,.1],['rebalanceThresholdPct','再平衡阈值（百分点）',0,100,.01]] as const).map(([key,label,min,max,step]) =>
           <label key={key}>{label}<input type="number" aria-label={label} min={min} max={max} step={step} value={Number.isFinite(value[key]) ? value[key] : ''} onChange={e => update({ [key]: e.target.valueAsNumber })}/></label>)}
@@ -27,7 +29,7 @@ export function StrategyAllocationEditor({ config, onChange }: { config: Strateg
         {([['dataStartDate','数据开始日期'],['dataEndDate','数据结束日期'],['startDate','交易开始日期'],['endDate','交易结束日期']] as const).map(([key,label]) =>
           <label key={key}>{label}<input type="date" aria-label={label} value={config[key] ?? ''} onChange={e => onChange({ ...config, [key]: e.target.value })}/></label>)}
       </div>
-      <table className="allocation-examples"><caption>年化波动率与目标仓位</caption><thead><tr><th>年化波动率</th><th>信号成立时目标仓位</th></tr></thead><tbody>{[20,30,40,50,60,70,80,100].map(vol => <tr key={vol}><td>{vol}%</td><td>{Math.min(config.positionPct ?? 100, Math.max(value.minPositionPct, value.targetVolPct / (vol / 100))).toFixed(2)}%</td></tr>)}</tbody></table>
+      <details className="allocation-example-details"><summary>查看波动率与仓位对照</summary><table className="allocation-examples"><caption>年化波动率与目标仓位</caption><thead><tr><th>年化波动率</th><th>信号成立时目标仓位</th></tr></thead><tbody>{[20,30,40,50,60,70,80,100].map(vol => <tr key={vol}><td>{vol}%</td><td>{cap === null ? '—' : Math.min(cap, Math.max(value.minPositionPct, value.targetVolPct / (vol / 100))).toFixed(2)+'%'}</td></tr>)}</tbody></table></details>
     </>}
   </section>;
 }

@@ -3,9 +3,18 @@ import assert from 'node:assert/strict';
 import {defaultMandate,validMandate} from '../src/terminal/portfolio.ts';
 import {strategyDefaults} from '../src/terminal/backtest.ts';
 import {defaultCustomRules} from '../src/terminal/strategyRules.ts';
-import {withExecution,executableStrategy,generatedExecution,applyGeneratedStrategy,editStrategyExecution,strategyBacktestConfig} from '../src/terminal/strategyDefinition.ts';
+import {withExecution,executableStrategy,generatedExecution,applyGeneratedStrategy,editStrategyExecution,strategyBacktestConfig,strategyExecutionMode,suggestedStrategyAllocation} from '../src/terminal/strategyDefinition.ts';
 const base=()=>({...defaultMandate,id:'strategy-1',name:'AI strategy',goal:'close above SMA20',instrument:{ticker:'AAPL',name:'Apple',market:'US'}});
 const environment={capital:100000,feeBps:10,slippageBps:10,startDate:'2026-01-01',endDate:'2026-11-06',lotSize:1,liquidateEnd:false};
+test('saved custom rules deploy as rules without needing another AI decision and stale rules cannot deploy',()=>{
+ const ready=withExecution(base(),{...strategyDefaults,kind:'custom',rules:defaultCustomRules()});
+ assert.equal(strategyExecutionMode(ready),'rules');
+ assert.equal(strategyExecutionMode({...ready,goal:'changed target'}),null);
+ assert.equal(strategyExecutionMode(base()),'ai');
+ assert.equal(suggestedStrategyAllocation({...ready,maxSingle:45},100),45);
+ assert.equal(suggestedStrategyAllocation({...ready,maxSingle:45},25),25);
+ assert.equal(suggestedStrategyAllocation(undefined,12),12);
+});
 test('text-only strategies cannot silently fall back to an unrelated SMA backtest',()=>{
  const strategy=base();assert.equal(executableStrategy(strategy),false);assert.throws(()=>strategyBacktestConfig(strategy,environment),/生成或设置规则/);
  assert.equal(validMandate(strategy).goal,strategy.goal);

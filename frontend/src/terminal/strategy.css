@@ -182,3 +182,10 @@
 .allocation-schedule dt { color: var(--muted); }.allocation-schedule dd { margin: 0; }
 .allocation-examples { width: 100%; margin-top: 18px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .allocation-examples caption { text-align: left; margin-bottom: 10px; }.allocation-examples th, .allocation-examples td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--line); }
+.strategy-ledger-controls { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border: 1px solid var(--line); border-bottom: 0; border-radius: 5px 5px 0 0; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.strategy-ledger-controls > span:first-child { margin-right: auto; }
+.strategy-ledger-controls label { display: flex; align-items: center; gap: 8px; }
+.strategy-ledger-controls select { min-height: 28px; padding: 3px 6px; }
+.strategy-ledger-controls button { min-height: 28px; padding: 4px 8px; }
+.allocation-example-details { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+.allocation-example-details summary { cursor: pointer; color: var(--muted); font-size: 12px; }

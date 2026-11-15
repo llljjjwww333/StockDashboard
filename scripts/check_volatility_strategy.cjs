@@ -25,6 +25,7 @@ const base = process.env.PREVIEW_URL || 'http://127.0.0.1:5176';
   assert.equal(await page.getByLabel('买入规则 2 左值 周期',{exact:true}).inputValue(),'90');
   assert.equal(await page.getByLabel('仓位计算方式',{exact:true}).inputValue(),'volatility_target');
   for(const [label,value] of [['波动率回看（日）','30'],['目标年化波动率（%）','10'],['资金比例上限（%）','45'],['再平衡阈值（百分点）','0'],['策略手续费（基点）','10'],['策略滑点（基点）','5'],['数据开始日期','2017-08-17'],['交易开始日期','2018-03-06']]) assert.equal(await page.getByLabel(label,{exact:true}).inputValue(),value,label);
+  await page.getByText('查看波动率与仓位对照',{exact:true}).click();
   assert((await page.locator('.allocation-examples').innerText()).includes('33.33%'));
   assert.equal(await page.locator('.strategy-capability-issues').count(),0);
   await page.reload();await page.getByLabel('目标年化波动率（%）',{exact:true}).waitFor();
