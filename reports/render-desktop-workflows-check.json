@@ -1,0 +1,15 @@
+{
+  "url": "https://stock-dashboard-web-rf7v.onrender.com",
+  "stickyActions": true,
+  "staleParametersSeparated": true,
+  "originalInputRestored": true,
+  "customRulesRunWithoutApiKey": true,
+  "noAiCallsForRules": true,
+  "allocationSuggestedFromStrategy": true,
+  "volatilityBindingUsesRules": true,
+  "largeLedgersPaginated": true,
+  "snapshotIncludesFloorAndCosts": true,
+  "smallCoinAndFeePrecision": true,
+  "positionCapEditsStaySynchronized": true,
+  "errors": []
+}
