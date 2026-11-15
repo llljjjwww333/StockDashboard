@@ -54,10 +54,11 @@ export function StrategyLab({stock,watchlist,onSettings,onSimulation}:{stock:Wat
  const importReport=async(file:File)=>{try{
   if(entries.length>=20)throw new Error('最多 20 个策略，请先整理策略库');if(file.size>4_000_000)throw new Error('文件过大');const raw=JSON.parse(await file.text());let next:Mandate;
   if(raw&&typeof raw.goal==='string'){next=portableMandate(raw);if(entries.some(m=>m.id===next.id))next=copyMandate(next,crypto.randomUUID(),' 导入');}else{
-   const parsed=parseStrategyLibrary(JSON.stringify(Array.isArray(raw)?raw:[raw]));if(!parsed.reports.length||parsed.damaged)throw new Error('策略文件无效');const s=parsed.reports[0].snapshot;
+   const parsed=parseStrategyLibrary(JSON.stringify(Array.isArray(raw)?raw:[raw]));if(!parsed.reports.length||parsed.damaged)throw new Error('策略文件无效');const s=parsed.reports[0].snapshot;if(s.instrument.market!=='CRYPTO')throw new Error('请选择USDT现货策略文件');
    next=withExecution({...defaultMandate,id:crypto.randomUUID(),name:s.name,instrument:s.instrument,goal:s.strategy?.goal??s.ai?.prompt??getStrategy(s.config.kind)!.entry,maxSingle:s.config.positionPct??100},s.config);
    saveBacktestPreference({id:next.id,ticker:s.instrument.ticker,period:s.period,environment:backtestEnvironment(s.config)});useStrategyWorkspace.setState({config:s.config,instrument:s.instrument,period:s.period});
   }
+  if(next.instrument&&next.instrument.market!=='CRYPTO')throw new Error('请选择USDT现货策略文件');
   useMandates.setState({draft:next});if(saveMandate()){setPanel('design');setFilter('');setMessage('已导入');}
  }catch(e){setMessage(e instanceof Error?e.message:'导入失败');}finally{if(importInput.current)importInput.current.value='';}};
  let parameterError='';if(execution){try{validateStrategyConfig({...execution,positionPct:draft.maxSingle});if(execution.rules)validateStrategyRuleSemantics(execution.rules);}catch(e){parameterError=e instanceof Error?e.message:'请完善策略参数';}}

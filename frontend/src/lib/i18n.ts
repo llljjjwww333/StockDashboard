@@ -24,6 +24,11 @@ window.addEventListener('storage', event => {
 
 const english: Record<string, string> = {
   ...strategyEnglish,
+  '暂无自选交易对': 'No watchlisted pairs', '没有匹配的自选交易对': 'No matching watchlisted pairs', '搜索并添加交易对': 'Find and add a pair',
+  '导出USDT现货自选，在其他浏览器导入。': 'Export USDT spot pairs to another browser.', '当前有 {count} 个自选交易对': '{count} watchlisted pairs',
+  '新增 {count} 个自选交易对': 'Add {count} pairs', '导入补充新交易对，保留现有自选和排列顺序。': 'Add new pairs while keeping the current list and order.',
+  '待导入交易对': 'Pairs to import', '另有 {count} 个交易对': '{count} more pairs', '已导入 {count} 个自选交易对': 'Imported {count} pairs',
+  '跳过 {count} 个非USDT现货标的': 'Skipped {count} instruments outside USDT spot', '没有可导入的USDT现货交易对': 'No USDT spot pairs to import',
   '量化策略': 'Strategies', '配置规则，用历史日线检验交易想法。': 'Test trading rules against daily price history.',
   '模拟回测': 'Simulation', '策略配置': 'Strategy setup', '回测标的': 'Instrument', '请选择标的': 'Select an instrument',
   '策略模板': 'Strategy template', '双均线': 'Moving averages', '通道突破': 'Channel breakout',

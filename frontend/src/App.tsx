@@ -101,7 +101,8 @@ function App() {
   usePortfolioRunner();
   useLanguage();
   const online = useOnlineStatus();
-  const { watchlist, selectedTicker, addToWatchlist, removeFromWatchlist, selectStock } = useStockStore();
+  const { watchlist: savedWatchlist, selectedTicker, addToWatchlist, removeFromWatchlist, selectStock } = useStockStore();
+  const watchlist = useMemo(() => savedWatchlist.filter(stock => stock.market === 'CRYPTO'), [savedWatchlist]);
   const quotes = useStockQuoteStore((state) => state.quotes);
   const connectionStatus = useStockQuoteStore((state) => state.connectionStatus);
   const updateQuote = useStockQuoteStore((state) => state.updateStockQuote);
@@ -740,10 +741,10 @@ function Sidebar(props: SidebarProps) {
           <button type="button" onClick={props.onBackup}>{t('自选备份')}</button>
         </div>}
         <div className="watch-items" ref={watchItems}>
-          {!props.watchlist.length && props.totalStocks > 0 && <div className="watch-empty"><p>{t('没有匹配的自选股')}</p></div>}
+          {!props.watchlist.length && props.totalStocks > 0 && <div className="watch-empty"><p>{t('没有匹配的自选交易对')}</p></div>}
           {!props.totalStocks && <div className="watch-empty">
-            <p>{t("暂无自选股")}</p>
-            <button type="button" onClick={props.onSearch}>{t("搜索并添加股票")} <Icon name="plus" /></button>
+            <p>{t("暂无自选交易对")}</p>
+            <button type="button" onClick={props.onSearch}>{t("搜索并添加交易对")} <Icon name="plus" /></button>
           </div>}
           {props.watchlist.map((stock) => {
             const quote = props.quotes[stock.ticker];
@@ -968,7 +969,7 @@ function Overview(props: OverviewProps) {
   const { chartAnnotations, trendlines } = useMemo(() => plotAnalysis(analysis.result, chartData, props.historyMeta), [analysis.result, chartData, props.historyMeta]);
   const plottedPoints = useMemo(() => new Set(chartAnnotations.map(point => point.id)), [chartAnnotations]);
   if (!props.selectedStock) {
-    return <section className="empty-state"><h1>{t("暂无自选股")}</h1><p>{t("搜索并添加股票")}</p></section>;
+    return <section className="empty-state"><h1>{t("暂无自选交易对")}</h1><p>{t("搜索并添加交易对")}</p></section>;
   }
 
   const stock = props.selectedStock;

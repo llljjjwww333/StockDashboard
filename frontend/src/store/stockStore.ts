@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { isCryptoTicker } from '../lib/instrumentIdentity';
 import type { Quote } from '../terminal/types';
 import { mergeStoredQuotes } from '../lib/quotes';
 import { mergeWatchlist } from '../lib/watchlistBackup';
@@ -106,7 +107,7 @@ export const useStockStore = create<StockStore>()(
       selectedTicker: defaultWatchlist[0]?.ticker ?? null,
       addToWatchlist: (stock) =>
         set((state) => {
-          if (state.watchlist.some((item) => item.ticker === stock.ticker)) {
+          if (stock.market !== 'CRYPTO' || !isCryptoTicker(stock.ticker) || state.watchlist.some((item) => item.ticker === stock.ticker)) {
             return state;
           }
 
@@ -143,7 +144,7 @@ export const useStockStore = create<StockStore>()(
         return { watchlist, selectedTicker: state.selectedTicker ?? stock.ticker };
       }),
       importWatchlist: stocks => set(state => {
-        const watchlist = mergeWatchlist(state.watchlist, stocks);
+        const watchlist = mergeWatchlist(state.watchlist, stocks.filter(stock => stock.market === 'CRYPTO' && isCryptoTicker(stock.ticker)));
         return { watchlist, selectedTicker: state.selectedTicker ?? watchlist[0]?.ticker ?? null };
       }),
       selectStock: (ticker) => set({ selectedTicker: ticker }),

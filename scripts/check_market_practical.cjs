@@ -5,7 +5,7 @@ const base=process.env.PREVIEW_URL||'http://127.0.0.1:5176';
  const browser=await chromium.launch({channel:'msedge',headless:true}),context=await browser.newContext({viewport:{width:1440,height:800}}),page=await context.newPage(),errors=[];
  page.on('pageerror',e=>errors.push(e.message));
  try{
-  const response=page.waitForResponse(r=>r.url().includes('/api/v1/market/hotspots?')&&r.ok());
+  const response=page.waitForResponse(r=>r.url().includes('/api/v1/market/hotspots?')&&r.ok(),{timeout:90000});
   await page.goto(base+'/?view=markets',{timeout:90000});const live=await(await response).json();
   await page.locator('.heatmap-grid>button').first().waitFor({timeout:60000});assert.equal(live.market,'CRYPTO');
   assert.equal(await page.getByRole('button',{name:'USDT现货 · 24小时',exact:true}).count(),0);

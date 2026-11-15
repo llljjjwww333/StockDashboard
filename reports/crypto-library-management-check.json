@@ -9,6 +9,7 @@
     "undoRestoresIncompleteEdit": true,
     "deployedSnapshotUnaffected": true,
     "importDoesNotOverwrite": true,
+    "nonCryptoStrategyImportRejected": true,
     "reloadKeepsImportedRules": true,
     "failedDeleteKeepsLibrary": true,
     "errors": []
@@ -23,6 +24,7 @@
     "undoRestoresIncompleteEdit": true,
     "deployedSnapshotUnaffected": true,
     "importDoesNotOverwrite": true,
+    "nonCryptoStrategyImportRejected": true,
     "reloadKeepsImportedRules": true,
     "failedDeleteKeepsLibrary": true,
     "errors": []
