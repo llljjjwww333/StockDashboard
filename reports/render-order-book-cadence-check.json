@@ -1,0 +1,26 @@
+{
+  "url": "https://stock-dashboard-web-rf7v.onrender.com",
+  "cpuThrottle": 4,
+  "realSeconds": 20,
+  "transportIntervals": {
+    "count": 199,
+    "p50": 99.9,
+    "p95": 221.6,
+    "max": 444.6,
+    "gapsOver500ms": 0
+  },
+  "paintIntervals": {
+    "count": 179,
+    "p50": 100,
+    "p95": 246.8,
+    "max": 454.6,
+    "gapsOver500ms": 0
+  },
+  "burstMessages": 200,
+  "burstPaints": 1,
+  "newestQuantityExact": true,
+  "clockSkewHandled": true,
+  "unexpectedDepthPolls": 0,
+  "rows": 20,
+  "errors": []
+}
