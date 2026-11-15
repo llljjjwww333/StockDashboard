@@ -66,6 +66,7 @@ const base=process.env.PREVIEW_URL||'http://127.0.0.1:5176';
   await rule.page.locator('.portfolio-ledger nav button').filter({hasText:'币种策略'}).click();
   assert((await rule.page.locator('.portfolio-table tbody').innerText()).includes('执行上限 20%'));
   await rule.page.getByRole('button',{name:'编辑',exact:true}).click();
+  await rule.page.screenshot({path:process.env.SCREENSHOT_PATH||'reports/binding-limits-dialog.png'});
   assert.equal(await rule.page.getByLabel('绑定资金比例',{exact:true}).getAttribute('max'),'20');
   await rule.page.getByRole('button',{name:'保存',exact:true}).click();
   await rule.page.getByText('当前策略最多可分配 20%',{exact:true}).waitFor();

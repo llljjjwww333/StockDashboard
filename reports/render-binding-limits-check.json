@@ -1,0 +1,17 @@
+{
+  "url": "https://stock-dashboard-web-rf7v.onrender.com",
+  "marketAndModelFixtures": true,
+  "stagedBudgetReduction": true,
+  "legacyBudgetPreserved": true,
+  "previousDailyReviewRechecked": true,
+  "ruleTargetCappedAt20": true,
+  "postCostWeightWithinCap": true,
+  "explicitModeSelection": true,
+  "missingAiProfileBlocksOnlyAi": true,
+  "deploymentCapValidated": true,
+  "aiRequestLimit15": true,
+  "oversizedAiTargetRejected": true,
+  "aiModePreservedAfterReload": true,
+  "legacyVolatilityRunsAsRules": true,
+  "errors": []
+}
