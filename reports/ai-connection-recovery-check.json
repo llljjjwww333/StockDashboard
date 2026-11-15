@@ -1,0 +1,9 @@
+{
+  "fixtureOnly": true,
+  "seconds": 67.918,
+  "posts": 1,
+  "polls": 70,
+  "disconnectedPolls": 2,
+  "result": "连接成功",
+  "slowProviderBeyondOldTimeout": true
+}

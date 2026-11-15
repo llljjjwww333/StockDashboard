@@ -1,0 +1,8 @@
+{
+  "url": "https://stock-dashboard-api-trec.onrender.com/api/v1/ai/jobs",
+  "jobAccepted": true,
+  "sameIdReused": true,
+  "providerValidation": true,
+  "conflictRejected": true,
+  "externalModelCalled": false
+}

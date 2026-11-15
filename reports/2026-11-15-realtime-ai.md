@@ -23,3 +23,12 @@
 原有真实报价、搜索、市场列表、366根日线及345根有效回测、0.001 BTC同日模拟买卖与刷新恢复检查通过，见 `crypto-desktop-after-realtime.json`。
 
 币安接口规则参考：[官方WebSocket文档](https://developers.binance.com/en/docs/catalog/core-trading-spot-trading/api/ws-streams/~/)。100ms为盘口订阅档位；实际到达频率取决于交易所事件与网络。普通周期K线按交易所推送频率更新。
+
+## 公网发布
+
+应用版本：`b9602dde4971e3372f25cc63abfb0792204c3588`。Render前后端部署均成功；健康检查返回`b9602dde4971`，前端入口为`index-BU9tNTrI.js`。
+
+- `render-realtime-public-check.json`：刷新失败与恢复时scrollY均为600，数据区坐标均为176，内容移动为0；7.376秒收到79次盘口与4次K线消息；断网恢复、K线渲染及浏览器无报错检查通过。短窗口可能包含网络批量到达，因此用约100ms档位描述盘口频率。
+- `render-desktop-after-realtime.json`：真实报价、盘口、搜索、市场、日线回测、0.001 BTC模拟买卖及刷新保存通过。
+- `render-ai-jobs-public-check.json`：公网后台任务提交、相同ID复用、参数冲突检查及供应商地址校验通过；此检查不调用外部模型。真实HTTP慢响应与查询中断由上述本地测试供应商检查覆盖。
+- `render-profile-retention-check.json`：在本次发布前保存测试配置，发布后刷新及新浏览器会话继续读取同一配置与已记住的测试密钥。

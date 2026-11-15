@@ -1,0 +1,20 @@
+{
+  "base": "http://127.0.0.1:5176",
+  "desktopWidth": 1600,
+  "cryptoOnly": true,
+  "legacyEquityDataPreserved": true,
+  "realQuotes": true,
+  "realDepthLevels": 20,
+  "realSearch": true,
+  "realMarketRows": true,
+  "realHistoryBars": 366,
+  "testedBars": 345,
+  "weekendsIncluded": true,
+  "annualDays": 365,
+  "fractionalBuySell": 0.001,
+  "sameDayExit": true,
+  "reloadPersists": true,
+  "noAiRegeneration": true,
+  "errors": [],
+  "failures": []
+}
