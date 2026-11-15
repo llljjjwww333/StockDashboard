@@ -1,0 +1,37 @@
+{
+  "base": "https://stock-dashboard-web-rf7v.onrender.com",
+  "desktopWidth": 1600,
+  "realFeedItems": 200,
+  "sources": [
+    {
+      "name": "PANews",
+      "status": "live",
+      "count": 100
+    },
+    {
+      "name": "ChainCatcher",
+      "status": "live",
+      "count": 50
+    },
+    {
+      "name": "CoinDesk",
+      "status": "live",
+      "count": 25
+    },
+    {
+      "name": "Cointelegraph",
+      "status": "live",
+      "count": 30
+    }
+  ],
+  "chineseDefault": true,
+  "sourceLanguageCoinTopicTimeFilters": true,
+  "bookmarkSaveReloadRemove": true,
+  "readState": true,
+  "readerOriginalLink": true,
+  "coinNavigationAndBack": true,
+  "loadMore": true,
+  "conciseCopy": true,
+  "errors": [],
+  "apiFailures": []
+}

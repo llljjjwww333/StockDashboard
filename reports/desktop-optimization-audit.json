@@ -1,0 +1,167 @@
+{
+  "checkedAt": "2026-11-15T14:55:15.994968+00:00",
+  "objective": "继续优化，显示和操作逻辑以及功能实用",
+  "appCommit": "9fb5d5baeeeaff67e8e3060c808ff430c0acb557",
+  "frontendAsset": "index-Bm1vW6nv.js",
+  "frontendDeployment": 7804990634,
+  "apiCommit": "ca50f8f38159",
+  "frontendTests": 317,
+  "backendTests": 135,
+  "build": "passed",
+  "lint": "passed",
+  "requiredChecks": [
+    {
+      "requirement": "USDT现货桌面范围与旧数据保留",
+      "status": "passed",
+      "evidence": [
+        "render-completion-crypto-flow.json",
+        "render-crypto-watchlist-check.json",
+        "render-crypto-library-management-check.json",
+        "render-account-management-check.json"
+      ]
+    },
+    {
+      "requirement": "完整策略参数填入、可读编辑与刷新",
+      "status": "passed",
+      "evidence": [
+        "render-completion-volatility-check.json",
+        "render-completion-desktop-workflows.json"
+      ]
+    },
+    {
+      "requirement": "策略设计与回测独立，回测不再生成策略",
+      "status": "passed",
+      "evidence": [
+        "render-completion-crypto-flow.json",
+        "render-completion-volatility-check.json"
+      ]
+    },
+    {
+      "requirement": "完整历史、预热、成本与无未来数据",
+      "status": "passed",
+      "evidence": [
+        "render-completion-volatility-check.json"
+      ]
+    },
+    {
+      "requirement": "保存规则执行与显式AI动态模式",
+      "status": "passed",
+      "evidence": [
+        "render-completion-desktop-workflows.json",
+        "render-completion-binding-limits.json"
+      ]
+    },
+    {
+      "requirement": "仓位上限、分批减仓和清仓优先",
+      "status": "passed",
+      "evidence": [
+        "render-completion-binding-limits.json"
+      ]
+    },
+    {
+      "requirement": "交易数量、低价币价格与费用精度",
+      "status": "passed",
+      "evidence": [
+        "render-completion-desktop-workflows.json",
+        "render-market-practical-check.json"
+      ]
+    },
+    {
+      "requirement": "大回测记录分页",
+      "status": "passed",
+      "evidence": [
+        "render-completion-desktop-workflows.json"
+      ]
+    },
+    {
+      "requirement": "账户增删改查、导入导出与失败恢复",
+      "status": "passed",
+      "evidence": [
+        "render-account-management-check.json"
+      ]
+    },
+    {
+      "requirement": "策略库增删改查与失败恢复",
+      "status": "passed",
+      "evidence": [
+        "render-crypto-library-management-check.json"
+      ]
+    },
+    {
+      "requirement": "自选增删撤销、备份与范围检查",
+      "status": "passed",
+      "evidence": [
+        "render-crypto-watchlist-check.json"
+      ]
+    },
+    {
+      "requirement": "市场成交额排行、单位和返回位置",
+      "status": "passed",
+      "evidence": [
+        "render-market-practical-check.json"
+      ]
+    },
+    {
+      "requirement": "真实资讯、筛选、收藏、阅读和跳转",
+      "status": "passed",
+      "evidence": [
+        "render-news-management-audit.json"
+      ]
+    },
+    {
+      "requirement": "接口配置保存、刷新与新会话",
+      "status": "passed",
+      "evidence": [
+        "render-profile-current-check.json"
+      ]
+    },
+    {
+      "requirement": "刷新失败与恢复时页面位置稳定",
+      "status": "passed",
+      "evidence": [
+        "render-completion-realtime-check.json"
+      ]
+    },
+    {
+      "requirement": "原生盘口高频更新和突发只呈现最新帧",
+      "status": "passed",
+      "evidence": [
+        "render-completion-realtime-check.json",
+        "render-completion-book-cadence.json",
+        "book-processing-check.json"
+      ]
+    },
+    {
+      "requirement": "固定公网地址和发布验证",
+      "status": "passed",
+      "evidence": [
+        "render-completion-crypto-flow.json",
+        "render-profile-current-check.json"
+      ]
+    }
+  ],
+  "excludedByUser": [
+    "移动端优化",
+    "已暂停的网络连接方案改造与重连验收"
+  ],
+  "methodNotes": [
+    "行情、历史与资讯使用公网服务；模型输出及边界/错误场景使用明确的测试响应。",
+    "未调用用户的付费模型；配置验证使用虚构密钥。",
+    "盘口间隔的抖动在浏览器协议层与页面消息层一致，未修改连接方案。"
+  ],
+  "evidenceSha256": {
+    "render-completion-crypto-flow.json": "801dc0b5d0365c4d3cb8c3948851aa457ccb1c85135698ca50e8599e84e1204c",
+    "render-completion-volatility-check.json": "5b11b8a93c5f3f78c5267528f7236814071e177540cf2021253a3d465e89ff43",
+    "render-completion-desktop-workflows.json": "cdf6b88a2df3b5eb28e3e45bc946c267f37d5ba2aa23b6001a9086083d669443",
+    "render-completion-binding-limits.json": "81b525ab96b20c603e3f962fd4c085feffcd06a6ef3d82e7693b1e2c1351d314",
+    "render-account-management-check.json": "33cd7bcb3ac0a630b50383096ec1633ea1f88ee96f39322247fa49614b8fed40",
+    "render-crypto-library-management-check.json": "9949dd396c91c350bd0db801804b5077f54f20cae8097c826805c689aecd1f7b",
+    "render-crypto-watchlist-check.json": "9a5e2ae45cc082fe99e3c7deacfacac41f6a2b699b4a9f10dd2e3c19c8e9442f",
+    "render-market-practical-check.json": "0d0e0ee5264cff189f2872286b51d2ff0b85300dbdb3f08cbefe5497b60e611a",
+    "render-news-management-audit.json": "8858111a749e86abfbdb8f525a9b78980dacdf80026efa0b2154d3ea5ee00091",
+    "render-profile-current-check.json": "0337bcdc847b3d10f09c88db4b623e6ff59d49504dacda5f6a6a21a7a0781d29",
+    "render-completion-realtime-check.json": "acd5ffc4c2b86c5cf7f51ff7df2e463fcefc43f69763e69c5d24634a0299c50f",
+    "render-completion-book-cadence.json": "7736335278f83741bd7db064f6e146d856c78ed5ff1e009deda15584355c8c1f",
+    "book-processing-check.json": "32e8eb15d909f4da8319f51079c457304569c0aae0d3995650966e38d54a0e1b"
+  }
+}

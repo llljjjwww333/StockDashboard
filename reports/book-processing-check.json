@@ -1,0 +1,30 @@
+{
+  "url": "https://stock-dashboard-web-rf7v.onrender.com",
+  "cpuThrottle": 4,
+  "seconds": 20,
+  "pageDeliveryGaps": {
+    "count": 218,
+    "p50": 22,
+    "p95": 481,
+    "max": 885
+  },
+  "longTasks": {
+    "count": 14,
+    "p50": 135,
+    "p95": 150,
+    "max": 150
+  },
+  "longTaskTotalMs": 1823,
+  "protocolFrameGaps": {
+    "count": 218,
+    "p50": 23,
+    "p95": 482,
+    "max": 885
+  },
+  "pageMinusProtocolMs": {
+    "count": 219,
+    "p50": 0,
+    "p95": 1,
+    "max": 1
+  }
+}

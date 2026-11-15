@@ -1,0 +1,35 @@
+{
+  "url": "https://stock-dashboard-web-rf7v.onrender.com",
+  "viewport": "1440x850",
+  "before": {
+    "scroll": 600,
+    "stats": 176,
+    "chart": 673,
+    "book": 682
+  },
+  "afterFailure": {
+    "scroll": 600,
+    "stats": 176,
+    "chart": 673,
+    "book": 682
+  },
+  "afterRecovery": {
+    "scroll": 600,
+    "stats": 176,
+    "chart": 673,
+    "book": 682
+  },
+  "seconds": 7.381,
+  "messages": {
+    "update": 278,
+    "depth": 81,
+    "candle": 4
+  },
+  "depthHz": 10.97,
+  "distinctPrices": 19,
+  "scrollRange": 0,
+  "contentMovement": 0,
+  "reconnect": null,
+  "candlesRendered": true,
+  "errors": []
+}

@@ -31,3 +31,5 @@
 - 最终版本的 `render-binding-limits-check.json` 全部通过，包括普通规则20%上限、扣费后仓位、旧当天决策重新核对、分批策略降额至10%后的真实模拟减仓、AI请求15%上限、越限目标拒绝、显式模式持久化和旧动态仓位绑定。浏览器错误为0。该组行情与模型响应由隔离浏览器提供。
 - 最终版本的 `render-binding-desktop-regression.json` 全部通过：真实币安历史回测、目标修改和原始输入恢复、无API规则运行、动态仓位绑定、分页与小额币种精度。
 - 本轮没有调用用户的付费AI接口，也没有修改网络连接方案。
+
+后续仓位、市场、资讯与增删改查核对已完成；最终版本证据与范围见[desktop-optimization-audit.md](desktop-optimization-audit.md)。

@@ -1,0 +1,13 @@
+{
+  "url": "https://stock-dashboard-web-rf7v.onrender.com",
+  "realBinanceOverview": true,
+  "activePairs": 20,
+  "cryptoTurnoverInUsdt": true,
+  "liquidityRanking": true,
+  "rankingPreferenceSurvivesReload": true,
+  "backRestoresNestedScrollAndFocus": true,
+  "smallCoinPricePrecision": true,
+  "noDuplicateMarketAction": true,
+  "noHorizontalOverflow": true,
+  "errors": []
+}

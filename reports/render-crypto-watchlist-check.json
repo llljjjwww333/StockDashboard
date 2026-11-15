@@ -1,0 +1,21 @@
+[
+  {
+    "width": 1440,
+    "dimensions": {
+      "width": 1440,
+      "scrollWidth": 1440
+    },
+    "errors": [],
+    "cryptoOnlyVisible": true,
+    "legacyRowsPreserved": true,
+    "cryptoBackupExport": true,
+    "mixedImportPreviewAndCounts": true,
+    "nonCryptoOnlyImportDisabled": true,
+    "reloadPreservesCryptoList": true,
+    "restoredOrder": [
+      "BTCUSDT",
+      "SOLUSDT",
+      "ETHUSDT"
+    ]
+  }
+]
