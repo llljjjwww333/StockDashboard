@@ -1,0 +1,13 @@
+{
+  "url": "https://stock-dashboard-web-rf7v.onrender.com",
+  "providerFixture": true,
+  "aiOutputSchemaTested": false,
+  "exactIndicators": true,
+  "dynamicWeights": true,
+  "costsAndDatesFilled": true,
+  "reloadPreserved": true,
+  "realBinanceHistory": true,
+  "range": "实际取得 2017-08-17 — 2026-11-14 · 3377 根日线\n\n指标预热需 200 根日线 · 最早可回测 2018-03-05 · 预热后共 3177 个UTC日\n\n本次将回测 2018-03-06 — 2026-11-14 · 3176 个UTC日；预热数据不计入收益。",
+  "backtestCompleted": true,
+  "errors": []
+}

@@ -24,3 +24,11 @@
 - 用户原始目标保留；文字中的历史收益和当前信号不作为网站重新算出的结果。
 
 `BTCUSDT-low-volatility.strategy.json`为同一执行定义的可导入策略文件，不含接口配置或密钥。
+
+## 公网发布验证
+
+后端版本`ca50f8f38159`，前端版本`4d0574e`，入口资产`index-C3UTFFo9.js`。两项Render部署均成功。
+
+- `render-allocation-api-check.json`：公网请求格式支持指标系数和16000字符目标；指定历史区间实际返回3377根币安日线。
+- `render-volatility-strategy-check.json`：公网界面使用受控生成结果验证自动填参、保存与刷新；买入SMA200×1.01/MOM90、动态仓位、成本与日期全部一致；真实币安历史回测完成3176日；历史范围显示「指定数据区间」。此项不调用用户的模型接口。
+- `render-allocation-desktop-regression.json`：原有真实行情、盘口、搜索、市场、回测、0.001 BTC模拟买卖与刷新保存通过。

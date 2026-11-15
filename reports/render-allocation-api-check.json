@@ -1,0 +1,10 @@
+{
+  "url": "https://stock-dashboard-api-trec.onrender.com",
+  "indicatorFactorInRequestSchema": true,
+  "goalLimit": 16000,
+  "bars": 3377,
+  "start": "2017-08-17",
+  "end": "2026-11-14",
+  "source": "Binance Spot",
+  "dynamicOutputSchemaCheckedByLocalProviderFixture": true
+}
