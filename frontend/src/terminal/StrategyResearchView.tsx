@@ -38,7 +38,8 @@ export function StrategyResearchView({ strategy, onEdit }: { strategy: Mandate; 
     setPeriod(next); setError('');
     saveBacktestPreference({ id: strategy.id, ticker, period: next, environment });
   };
-  const ready = executableStrategy(strategy), history = useStrategyHistory(ticker || null, period, ready);
+  const ready = executableStrategy(strategy), history = useStrategyHistory(ticker || null, period, ready,
+    strategy.execution?.dataStartDate, strategy.execution?.dataEndDate);
   const cutoff = completedDailyCutoff(ticker, new Date(), history.data?.fetched_at);
   const bars = useMemo(() => history.data ? completedDailyBars(history.data.data, ticker, cutoff) : [], [history.data, ticker, cutoff]);
   const current = useMemo(() => {

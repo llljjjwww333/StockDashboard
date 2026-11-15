@@ -11,5 +11,7 @@ const unsupported: [RegExp, string][] = [
 export function strategyCapabilityIssues(goal: string) {
   // Detect unsupported requirements only; natural-language text never creates orders.
   const text = goal.replace(/(不|无需|禁止)加仓/g, '');
-  return unsupported.filter(([pattern]) => pattern.test(text)).map(([, message]) => message);
+  return unsupported.filter(([pattern], index) => !(index === 0 && volatilityAllocationGoal(text) && !/分批|分档|减半|半仓/.test(text)) && pattern.test(text)).map(([, message]) => message);
 }
+
+export const volatilityAllocationGoal = (goal: string) => /目标波动率|target\s*volatility|\d+(?:\.\d+)?\s*[%％]\s*\/\s*[σ\\]/i.test(goal);

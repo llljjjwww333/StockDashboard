@@ -15,17 +15,39 @@ class ConstantOperand(StrictModel):
 
 class DirectOperand(StrictModel):
     indicator: Literal["close", "open", "high", "low", "volume", "obv", "macd", "macd_signal"]
+    factor: FiniteFloat | None = Field(default=None, gt=0, le=1000)
 
 
 class PeriodOperand(StrictModel):
-    indicator: Literal["sma", "ema", "rsi", "roc", "atr_pct", "volume_ratio", "cci", "williams", "adx"]
+    indicator: Literal["sma", "ema", "rsi", "roc", "momentum", "atr_pct", "volume_ratio", "cci", "williams", "adx"]
     period: int = Field(ge=2, le=200)
+    factor: FiniteFloat | None = Field(default=None, gt=0, le=1000)
 
 
 class BandOperand(StrictModel):
     indicator: Literal["boll_upper", "boll_lower"]
     period: int = Field(ge=2, le=200)
     multiplier: FiniteFloat = Field(ge=.1, le=5)
+    factor: FiniteFloat | None = Field(default=None, gt=0, le=1000)
+
+
+class VolatilityAllocation(StrictModel):
+    method: Literal['volatility_target']
+    period: int = Field(ge=2, le=200)
+    targetVolPct: FiniteFloat = Field(gt=0, le=100)
+    minPositionPct: FiniteFloat = Field(ge=0, le=100)
+    annualization: Literal[252, 365]
+    ddof: Literal[0, 1] = 1
+    rebalanceThresholdPct: FiniteFloat = Field(ge=0, le=100)
+
+
+class DesignEnvironment(StrictModel):
+    feeBps: FiniteFloat = Field(ge=0, le=100)
+    slippageBps: FiniteFloat = Field(ge=0, le=100)
+    startDate: str = Field(default='', pattern=r'^$|^\d{4}-\d{2}-\d{2}$')
+    endDate: str = Field(default='', pattern=r'^$|^\d{4}-\d{2}-\d{2}$')
+    dataStartDate: str = Field(default='', pattern=r'^$|^\d{4}-\d{2}-\d{2}$')
+    dataEndDate: str = Field(default='', pattern=r'^$|^\d{4}-\d{2}-\d{2}$')
 
 
 Operand = ConstantOperand | DirectOperand | PeriodOperand | BandOperand
@@ -87,7 +109,7 @@ class StrategyProposal(StrictModel):
 class StrategyGenerationRequest(BaseModel):
     settings: ProviderConfig
     ticker: str = Field(min_length=1, max_length=20, pattern=r"^[A-Za-z0-9.^-]+$")
-    prompt: str = Field(min_length=1, max_length=2000)
+    prompt: str = Field(min_length=1, max_length=16000)
     language: Literal["zh", "en"] = "zh"
     period: Literal["3mo", "1y"] = "1y"
     chart_history: AnalysisChartHistory

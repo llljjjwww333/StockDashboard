@@ -11,6 +11,7 @@ import { hasExecutedDailyRule, mergePortfolioReview } from './ruleExecution';
 import { requestAiJson } from '../ai/requestJson';
 import { stagedPortfolioDecision } from './stagedPortfolio';
 import type { HistoryResponse, Quote } from './types';
+import { allocationExecutionDue } from './volatilityAllocation';
 export function usePortfolioRunner() {
  useEffect(()=>{
   const controller=new AbortController(), quoteBusy=new Set<string>(), busy=new Set<string>(), due=new Map<string,number>(), epochs=new Map<string,number>(),lastBinding=new Map<string,StockBinding>();
@@ -25,6 +26,7 @@ export function usePortfolioRunner() {
   };
   const run=async(p:Portfolio,b:StockBinding)=>{
    const key=p.id+':'+b.ticker;
+   if(b.config.allocation&&!allocationExecutionDue(new Date())){status(key,'等待00:00 UTC再平衡');return;}
    if(lastBinding.get(key)!==b){lastBinding.set(key,b);due.delete(key);}
    if(busy.has(key)||(due.get(key)??0)>Date.now())return;
    busy.add(key);const epoch=epochs.get(p.id)??0, holding=p.positions.find(h=>h.ticker===b.ticker);
@@ -32,7 +34,7 @@ export function usePortfolioRunner() {
    try{
     let result:PortfolioReview;let staged:ReturnType<typeof stagedPortfolioDecision>|undefined;
     const profile=useAiProfiles.getState().profiles.find(a=>a.id===(b.profileId||useAiProfiles.getState().activeId));
-    if(b.mode==='ai'&&!b.config.plan){
+    if(b.mode==='ai'&&!b.config.plan&&!b.config.allocation){
      if(!profile)throw new Error('请选择 AI 接口');status(key,'研判中');
      const quotes=usePortfolioStore.getState().quotes;
      const ownValue=(holding?.shares??0)*(quotes[b.ticker]?.price??holding?.lastPrice??0);
@@ -45,6 +47,7 @@ export function usePortfolioRunner() {
      if(hasExecutedDailyRule(p.reviews,b.ticker,ruleKey,new Date())){status(key,'等待下一交易日信号');return;}
      const history=await get<HistoryResponse>('/stocks/'+encodeURIComponent(b.ticker)+'/history?period=1y&interval=1d');
      if(history.interval!=='1d'||history.price_type==='snapshot')throw new Error('等待有效日线');
+     if(b.config.allocation&&(!history.fetched_at||history.fetched_at.slice(0,10)!==new Date().toISOString().slice(0,10)))throw new Error('等待收盘后的日K快照');
      if(b.config.plan){
       staged=stagedPortfolioDecision(p,b,history.data,usePortfolioStore.getState().quotes,new Date());
       const d=staged.diagnostics,summary=(staged.decision?.label??'等待条件')+'；MA '+[d.shortMa,d.entryMa,d.longMa].map(v=>v?.toFixed(2)??'缺失').join('/')+'；RSI '+(d.rsi?.toFixed(2)??'缺失')+'；量比 '+(d.volumeRatio?.toFixed(2)??'缺失')+'；MACD柱 '+(d.macdHistogram?.toFixed(4)??'缺失')+(b.config.plan.reviewTurnover?'；实时换手率：'+(typeof usePortfolioStore.getState().quotes[b.ticker]?.turnover_rate==='number'?usePortfolioStore.getState().quotes[b.ticker].turnover_rate+'%':'—'):'');
@@ -63,12 +66,12 @@ export function usePortfolioRunner() {
       }else if(b.config.plan.includeNews){result.decision.summary=(result.decision.summary+(priceExit?'；退出信号已执行':'；资讯跟踪已启用')).slice(0,800);}
      }else{
      const decision=paperDecision(positionAccount({...p,config:b.config},b.ticker),history.data,new Date());
-     result={ruleKey,id:crypto.randomUUID(),reviewed_at:new Date().toISOString(),provider:'规则引擎',model:b.config.kind,decision:{regime:'日线信号',method:b.label,summary:decision.target?'持有或买入信号':'空仓或卖出信号',reconsider_when:'下一交易日信号',targets:[{ticker:b.ticker,weight_pct:decision.target?b.allocationPct:0,reason:decision.reason}],evidence_ids:['H1']},evidence:[{id:'H1',title:b.ticker+' 日线',source:history.source??'行情',timestamp:decision.signal}]};
+     result={ruleKey,id:crypto.randomUUID(),reviewed_at:new Date().toISOString(),provider:'规则引擎',model:b.config.kind,decision:{regime:'日线信号',method:b.label,summary:decision.target?'持有或买入信号':'空仓或卖出信号',reconsider_when:'下一交易日信号',targets:[{ticker:b.ticker,weight_pct:b.config.allocation?Math.min(b.allocationPct,decision.targetPct):decision.target?b.allocationPct:0,reason:decision.reason}],evidence_ids:['H1']},evidence:[{id:'H1',title:b.ticker+' 日线',source:history.source??'行情',timestamp:decision.signal}]};
      }
     }
     const mayApply=()=>{
      const current=usePortfolioStore.getState().portfolios.find(a=>a.id===p.id), currentBinding=current?.bindings?.find(a=>a.ticker===b.ticker), currentHolding=current?.positions.find(h=>h.ticker===b.ticker);
-     return !stopped&&usePortfolioStore.getState().owner&&usePortfolioStore.getState().running.includes(p.id)&&(epochs.get(p.id)??0)===epoch&&currentBinding===b&&b.enabled&&currentHolding?.shares===holding?.shares&&currentHolding?.cost===holding?.cost;
+     return !stopped&&(!b.config.allocation||allocationExecutionDue(new Date()))&&usePortfolioStore.getState().owner&&usePortfolioStore.getState().running.includes(p.id)&&(epochs.get(p.id)??0)===epoch&&currentBinding===b&&b.enabled&&currentHolding?.shares===holding?.shares&&currentHolding?.cost===holding?.cost;
     };
     if(!mayApply())return;await refresh([b.ticker]);if(!mayApply()||Date.now()-Date.parse(result.reviewed_at)>120000)return;
     const current=usePortfolioStore.getState().portfolios.find(a=>a.id===p.id)!;

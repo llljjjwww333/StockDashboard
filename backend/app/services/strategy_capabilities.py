@@ -13,4 +13,10 @@ UNSUPPORTED = [
 
 def strategy_capability_issues(goal):
     text = re.sub(r'(不|无需|禁止)加仓', '', goal)
-    return [label for pattern, label in UNSUPPORTED if re.search(pattern, text, re.I)]
+    return [label for index, (pattern, label) in enumerate(UNSUPPORTED)
+            if not (index == 0 and volatility_allocation_goal(text) and not re.search(r'分批|分档|减半|半仓', text))
+            and re.search(pattern, text, re.I)]
+
+
+def volatility_allocation_goal(goal):
+    return bool(re.search(r'目标波动率|target\s*volatility|(?:10|\d+(?:\.\d+)?)\s*[%％]\s*/\s*[σ\\]', goal, re.I))

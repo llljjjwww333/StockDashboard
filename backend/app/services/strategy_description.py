@@ -4,7 +4,7 @@ ZH_NAMES = {
     'close': '收盘价', 'open': '开盘价', 'high': '最高价', 'low': '最低价',
     'volume': '成交量', 'obv': 'OBV', 'macd': 'MACD DIF(12/26/9)',
     'macd_signal': 'MACD DEA(12/26/9)', 'sma': 'SMA', 'ema': 'EMA',
-    'rsi': 'RSI', 'roc': 'ROC(%)', 'atr_pct': 'ATR(%)', 'volume_ratio': '量比',
+    'rsi': 'RSI', 'momentum': 'MOM', 'roc': 'ROC(%)', 'atr_pct': 'ATR(%)', 'volume_ratio': '量比',
     'cci': 'CCI', 'williams': 'Williams %R', 'adx': 'ADX',
     'boll_upper': '布林上轨', 'boll_lower': '布林下轨',
 }
@@ -27,6 +27,8 @@ def execution_description(ticker, execution, position_pct, language='zh'):
             if hasattr(value, 'multiplier'):
                 name += f', {number(value.multiplier)}σ'
             name += ')'
+        if getattr(value, 'factor', None) not in (None, 1):
+            name += ' × ' + number(value.factor)
         return name
 
     def group(value):
@@ -37,6 +39,13 @@ def execution_description(ticker, execution, position_pct, language='zh'):
 
     stop = execution.stop_loss_pct
     profit = execution.take_profit_pct
+    allocation = getattr(execution, 'allocation', None)
+    if allocation:
+        return (f'仅交易{ticker}，初始现金，现货只做多。\n买入（{group(execution.rules.entry)}）。'
+                f'\n清仓（{group(execution.rules.exit)}）。\n目标波动率{number(allocation.targetVolPct)}%，'
+                f'对数收益率{allocation.period}日标准差×√{allocation.annualization}；'
+                f'w=min({number(position_pct)}%,max({number(allocation.minPositionPct)}%,{number(allocation.targetVolPct)}%/σ))，信号失效0%。'
+                f'每日再平衡，阈值{number(allocation.rebalanceThresholdPct)}个百分点，1D UTC完整日K收盘判断，下一根开盘执行。')
     if zh:
         return (f'仅交易{ticker}，初始持有现金。\n买入（{group(execution.rules.entry)}）。'
                 f'\n卖出（{group(execution.rules.exit)}）。\n开仓资金比例{number(position_pct)}%；'

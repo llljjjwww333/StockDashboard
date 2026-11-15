@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { t } from '../lib/i18n';
 import { bandIndicators, comparableRuleOperands, directIndicators, periodIndicators, ruleOperators, type CustomStrategyRules, type RuleCondition, type RuleGroup, type RuleIndicator, type RuleOperand } from './strategyRules';
 
-const labels: Record<RuleIndicator | 'constant', string> = { constant: '数值', close: '收盘价', open: '开盘价', high: '最高价', low: '最低价', volume: '成交量', obv: 'OBV', macd: 'MACD DIF', macd_signal: 'MACD DEA', sma: 'SMA', ema: 'EMA', rsi: 'RSI', roc: 'ROC（%）', atr_pct: 'ATR（%）', volume_ratio: '量比', cci: 'CCI', williams: 'Williams %R', adx: 'ADX', boll_upper: '布林上轨', boll_lower: '布林下轨' };
+const labels: Record<RuleIndicator | 'constant', string> = { constant: '数值', close: '收盘价', open: '开盘价', high: '最高价', low: '最低价', volume: '成交量', obv: 'OBV', macd: 'MACD DIF', macd_signal: 'MACD DEA', sma: 'SMA', ema: 'EMA', rsi: 'RSI', roc: 'ROC（%）', momentum: 'MOM 动量', atr_pct: 'ATR（%）', volume_ratio: '量比', cci: 'CCI', williams: 'Williams %R', adx: 'ADX', boll_upper: '布林上轨', boll_lower: '布林下轨' };
 const operators = { gt: '>', gte: '≥', lt: '<', lte: '≤', cross_above: '上穿', cross_below: '下穿' };
 const indicators = [...directIndicators, ...periodIndicators, ...bandIndicators];
 function indicatorOperand(name: RuleIndicator): RuleOperand {
@@ -11,7 +11,7 @@ function indicatorOperand(name: RuleIndicator): RuleOperand {
   return { indicator: name as 'close' };
 }
 function newCondition(name: RuleIndicator, side: 'entry' | 'exit'): RuleCondition {
-  const thresholds: Partial<Record<RuleIndicator, number>> = { rsi: side === 'entry' ? 30 : 70, roc: 0, atr_pct: 3, volume_ratio: 1, cci: side === 'entry' ? -100 : 100, williams: side === 'entry' ? -80 : -20, adx: 25 };
+  const thresholds: Partial<Record<RuleIndicator, number>> = { rsi: side === 'entry' ? 30 : 70, roc: 0, momentum: 0, atr_pct: 3, volume_ratio: 1, cci: side === 'entry' ? -100 : 100, williams: side === 'entry' ? -80 : -20, adx: 25 };
   const right: RuleOperand = name === 'macd' ? { indicator: 'macd_signal' } : ['macd_signal', 'volume', 'obv'].includes(name) ? { value: 0 } : thresholds[name] !== undefined ? { value: thresholds[name]! } : { indicator: 'sma', period: 20 };
   const oversold = ['rsi', 'cci', 'williams'].includes(name);
   return { left: indicatorOperand(name), operator: (side === 'entry') !== oversold ? 'gt' : 'lt', right };
@@ -25,6 +25,7 @@ function OperandEditor({ value, onChange, label, compareWith }: { value: RuleOpe
     <select aria-label={label} value={name} onChange={e => onChange(e.target.value === 'constant' ? { value: 0 } : indicatorOperand(e.target.value as RuleIndicator))}>{incompatible&&<option disabled value={name}>不兼容：{labels[name]}</option>}{['constant', ...choices].map(id => <option key={id} value={id}>{t(labels[id as keyof typeof labels])}</option>)}</select>
     {'value' in value && <label className="rule-value-field"><span>阈值</span><input type="number" aria-label={label + ' ' + t('数值')} step="any" value={Number.isFinite(value.value) ? value.value : ''} onChange={e => onChange({ value: e.target.valueAsNumber })}/></label>}
     {'period' in value && <label className="rule-value-field"><span>周期（日）</span><input type="number" aria-label={label + ' ' + t('周期')} min={2} max={200} value={Number.isFinite(value.period) ? value.period : ''} onChange={e => onChange({ ...value, period: e.target.valueAsNumber })}/></label>}
+    {'indicator' in value && <label className="rule-value-field"><span>系数</span><input type="number" aria-label={label + ' 系数'} min={.000001} max={1000} step="any" value={value.factor ?? 1} onChange={e => onChange({ ...value, factor: e.target.valueAsNumber })}/></label>}
     {'multiplier' in value && <label className="rule-value-field"><span>标准差倍数</span><input type="number" aria-label={label + ' ' + t('倍数')} step={.1} min={.1} max={5} value={Number.isFinite(value.multiplier) ? value.multiplier : ''} onChange={e => onChange({ ...value, multiplier: e.target.valueAsNumber })}/></label>}
     {'indicator' in value && ['macd', 'macd_signal'].includes(value.indicator) && <small className="rule-fixed-parameter">12 / 26 / 9</small>}
   </div>;

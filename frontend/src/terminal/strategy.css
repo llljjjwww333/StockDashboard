@@ -173,3 +173,12 @@
 .strategy-regime-report > summary { padding:12px 16px; color:var(--dim); cursor:pointer; font-size:12px; }
 .strategy-regime-strip { display:flex; gap:24px; padding:8px 16px 16px; font-size:12px; color:var(--dim); }
 .strategy-regime-strip b { color:var(--paper); margin-left:8px; }
+.strategy-allocation { margin-top: 18px; padding: 16px; border: 1px solid var(--line); border-radius: 4px; }
+.strategy-allocation > header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.strategy-allocation h3, .strategy-allocation h4 { margin: 0 0 12px; }
+.allocation-formula { color: var(--orange); font-variant-numeric: tabular-nums; line-height: 1.7; }
+.allocation-schedule { display: grid; gap: 10px; margin-block: 18px; }
+.allocation-schedule > div { display: grid; grid-template-columns: 100px 1fr; gap: 12px; }
+.allocation-schedule dt { color: var(--muted); }.allocation-schedule dd { margin: 0; }
+.allocation-examples { width: 100%; margin-top: 18px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.allocation-examples caption { text-align: left; margin-bottom: 10px; }.allocation-examples th, .allocation-examples td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--line); }

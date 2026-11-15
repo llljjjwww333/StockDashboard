@@ -8,7 +8,7 @@ import { resourceCache, stockMembershipCache, type ResourceCache } from '../lib/
 import { remainingFreshTime } from '../lib/resourceFreshness';
 import { pageResumeClock } from '../lib/pageResume';
 import { pricePrecision } from '../lib/pricePrecision';
-import { isChinaEquity, isChinaIndex, isChinaTicker, isInstrumentTicker, type StockMemberships } from '../lib/instrumentIdentity';
+import { isCryptoTicker, isChinaEquity, isChinaIndex, isChinaTicker, isInstrumentTicker, type StockMemberships } from '../lib/instrumentIdentity';
 import { isActivePhase, marketPhase, type MarketPhase } from './marketSession';
 import { useMarketPhase, useQuoteStreamHealth } from './useMarketPhase';
 import { compatibleIndicatorHistory } from './indicatorWarmup';
@@ -210,8 +210,9 @@ export function useInstrumentData(ticker: string | null, period: PeriodKey, inte
   };
 }
 
-export function useStrategyHistory(ticker: string | null, period: '3mo' | '1y', enabled = true) {
-  return useResource<HistoryResponse>(ticker ? historyPath(ticker, period, '1d', true) : null,
+export function useStrategyHistory(ticker: string | null, period: '3mo' | '1y', enabled = true, start = '', end = '') {
+  const range = ticker && isCryptoTicker(ticker) && start && end ? '&start=' + encodeURIComponent(start) + '&end=' + encodeURIComponent(end) : '';
+  return useResource<HistoryResponse>(ticker ? historyPath(ticker, period, '1d', true) + range : null,
     60000, '历史行情暂不可用', enabled, { reuseFreshHistory: true });
 }
 

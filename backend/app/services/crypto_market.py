@@ -7,7 +7,7 @@ import re
 import time
 import urllib.parse
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timezone, date, timedelta
 
 from app.schemas.stock import StockDataPoint, StockHistoryResponse, StockUpdate, OrderBook, BookLevel
 
@@ -122,7 +122,7 @@ class CryptoMarket:
         rows.sort(key=lambda s: (s['baseAsset'] != query and s['symbol'] != query, len(s['symbol']), s['symbol']))
         return [{'ticker': s['symbol'], 'name': NAMES.get(s['baseAsset'], s['baseAsset']) + ' / USDT', 'market': 'CRYPTO'} for s in rows[:30]]
 
-    async def history(self, symbol, period, interval):
+    async def history(self, symbol, period, interval, start_date=None, end_date=None):
         if not is_crypto(symbol):
             raise ValueError('无效USDT交易对')
         days = {'1d': 1, '5d': 5, '1mo': 32, '3mo': 93, '1y': 366}.get(period)
@@ -130,11 +130,20 @@ class CryptoMarket:
         api_interval = '1w' if interval == '1wk' else interval
         if days is None or interval not in units:
             raise ValueError('不支持的行情周期')
-        key = f'history:{symbol}:{period}:{interval}'
+        if start_date or end_date:
+            if not start_date or not end_date or interval != '1d':
+                raise ValueError('日期范围需要完整开始、结束日期及日线周期')
+            begin_day, end_day = date.fromisoformat(start_date), date.fromisoformat(end_date)
+            if begin_day > end_day or (end_day - begin_day).days > 12000:
+                raise ValueError('历史日期范围无效')
+        key = f'history:{symbol}:{period}:{interval}:{start_date or ""}:{end_date or ""}'
         async def load():
             end = int(time.time()*1000)
             step = units[interval]
             start = (end - days*86400000) // step * step
+            if start_date:
+                start = int(datetime.combine(begin_day, datetime.min.time(), UTC).timestamp() * 1000)
+                end = min(end, int(datetime.combine(end_day + timedelta(days=1), datetime.min.time(), UTC).timestamp() * 1000) - 1)
             chunks = list(range(start, end, step*1000))
             if len(chunks) > 12:
                 raise ValueError('请求K线过多，请选更大的K线周期')

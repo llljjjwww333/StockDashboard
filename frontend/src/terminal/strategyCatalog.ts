@@ -1,6 +1,7 @@
 import type { StrategyConfig } from './backtest';
 import { stagedWarmup } from './stagedPlan.ts';
 import { ruleWarmup } from './strategyRules.ts';
+import { allocationWarmup } from './volatilityAllocation.ts';
 
 export type StrategyKind = 'adaptive' | 'sma' | 'ema' | 'macd' | 'breakout' | 'keltner' | 'supertrend' | 'adx' | 'momentum' | 'bands' | 'rsi' | 'stochastic' | 'cci' | 'williams' | 'volume' | 'obv' | 'custom';
 export type StrategyParameterKey = 'fast' | 'slow' | 'bandWidth' | 'signalPeriod' | 'entryThreshold' | 'exitThreshold' | 'atrMultiplier' | 'adxThreshold' | 'volumeMultiplier' | 'momentumThreshold' | 'positionPct' | 'stopLossPct' | 'takeProfitPct';
@@ -37,6 +38,6 @@ export const strategyCatalog: StrategyDefinition[] = [
   { id: 'volume', name: '放量突破', group: '量价', parameters: [parameter('fast', '均量与退出周期'), parameter('slow', '突破回看周期', 3, 200), parameter('volumeMultiplier', '放量倍数', .5, 10, .1)], defaults: { fast: 10, slow: 40, volumeMultiplier: 1.5 }, volume: true, entry: '突破前期高点且成交量放大', exit: '收盘跌破短均线', warmup: c => Math.max(c.fast, c.slow) + 1 },
   { id: 'obv', name: 'OBV 量价趋势', group: '量价', parameters: [fast, slow], defaults: { fast: 10, slow: 30 }, orderedWindows: true, volume: true, entry: 'OBV 快线在慢线上方且价格在均线上方', exit: '量能趋势或价格趋势反转', warmup: longWarmup },
 ];
-const customStrategy: StrategyDefinition = { id: 'custom', name: 'AI 自定义策略', group: '自定义', parameters: [], experimentParameters: [parameter('positionPct', '开仓资金比例（%）', 1, 100, 5), parameter('stopLossPct', '收盘止损（%）', 0, 100, .5), parameter('takeProfitPct', '收盘止盈（%）', 0, 1000, 1)], defaults: {}, entry: '自定义买入规则', exit: '自定义卖出规则', warmup: c => c.plan?stagedWarmup(c.plan):ruleWarmup(c.rules!) };
+const customStrategy: StrategyDefinition = { id: 'custom', name: 'AI 自定义策略', group: '自定义', parameters: [], experimentParameters: [parameter('positionPct', '开仓资金比例（%）', 1, 100, 5), parameter('stopLossPct', '收盘止损（%）', 0, 100, .5), parameter('takeProfitPct', '收盘止盈（%）', 0, 1000, 1)], defaults: {}, entry: '自定义买入规则', exit: '自定义卖出规则', warmup: c => c.plan?stagedWarmup(c.plan):c.allocation?allocationWarmup(c.rules!,c.allocation):ruleWarmup(c.rules!) };
 export const getStrategy = (kind: string) => kind === 'custom' ? customStrategy : strategyCatalog.find(s => s.id === kind);
 export const experimentParameters = (kind: string) => { const definition = getStrategy(kind)!; return definition.experimentParameters ?? definition.parameters; };

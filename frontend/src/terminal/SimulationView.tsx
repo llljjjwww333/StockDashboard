@@ -27,7 +27,7 @@ export function SimulationView({stock,watchlist,onStrategy,onSettings}:{stock?:W
  const reportError=(e:unknown)=>setMessage(e instanceof Error?e.message:'操作失败');
  const attach=(account:Portfolio,mandate:Mandate)=>{
   const s=mandate.instrument;if(!s)throw new Error('请选择策略标的');
-  return bindStockStrategy(account,{ticker:s.ticker,name:s.name,label:mandate.name,mode:mandate.execution&&(mandate.execution.plan||mandate.execution.kind!=='custom')?'rules':'ai',mandate:structuredClone(mandate),config:mandate.execution??{...strategyDefaults},profileId:mandates.deploymentProfileId||useAiProfiles.getState().activeId,allocationPct:allocation??mandate.maxSingle,enabled:false});
+  return bindStockStrategy(account,{ticker:s.ticker,name:s.name,label:mandate.name,mode:mandate.execution&&(mandate.execution.plan||mandate.execution.allocation||mandate.execution.kind!=='custom')?'rules':'ai',mandate:structuredClone(mandate),config:mandate.execution??{...strategyDefaults},profileId:mandates.deploymentProfileId||useAiProfiles.getState().activeId,allocationPct:allocation??mandate.maxSingle,enabled:false});
  };
  const create=(name:string,capital:number,market:'CN'|'US'|'CRYPTO')=>{try{
   if(state.portfolios.length>=8)throw new Error('最多 8 个账户');

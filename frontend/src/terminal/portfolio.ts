@@ -4,6 +4,7 @@ import { executePaperOrder, sellableShares, quoteExecutionIssue, type PaperAccou
 import { strategyDefaults, validateStrategyConfig, type StrategyConfig } from './backtest.ts';
 import type { Quote } from './types';
 import { positionMarkPrice } from './portfolioValuation.ts';
+import { rebalanceQuantity } from './volatilityAllocation.ts';
 
 export type Mandate = { sourceGoal?: string; goalMode?: 'generated'; summary?: string; execution?: StrategyConfig; executionGoal?: string; executionTicker?: string; revision?: number; instrument?: WatchlistStock; id: string; name: string; goal: string; maxSingle: number; maxGross: number; maxPositions: number; reviewMinutes: number; news: boolean };
 export const defaultMandate: Mandate = { id: 'adaptive', name: 'AI 现货策略', goal: '根据该USDT现货交易对的行情、新闻和持仓，动态判断买卖时机与仓位，初始保持现金，仅在满足信号时交易。', maxSingle: 30, maxGross: 80, maxPositions: 5, reviewMinutes: 5, news: true };
@@ -14,11 +15,11 @@ export type PortfolioReview = { ruleKey?: string; ticker?: string; strategy?: st
 export type StockBinding = { ticker: string; name: string; label: string; mode: 'ai' | 'rules'; mandate: Mandate; config: StrategyConfig; profileId: string; allocationPct: number; enabled: boolean };
 export type Portfolio = { bindings?: StockBinding[]; settingsVersion?: number; version: 2; id: string; name: string; market: 'CN' | 'US' | 'CRYPTO'; capital: number; cash: number; createdAt: string; positions: PortfolioPosition[]; fees: number; realized: number; orders: PortfolioOrder[]; reviews: PortfolioReview[]; curve: { time: string; equity: number }[]; poolMode: 'watchlist' | 'custom'; pool: WatchlistStock[]; mandate: Mandate; mode: 'ai' | 'rules'; profileId: string; config: StrategyConfig; strategyLabel: string; lastRulesDay?: string };
 export function validMandate(value: Mandate) {
-  if (!value || typeof value.id !== 'string' || typeof value.name !== 'string' || !value.name.trim() || value.name.length > 80 || typeof value.goal !== 'string' || !value.goal.trim() || value.goal.length > 2000 || typeof value.news !== 'boolean' || !Number.isFinite(value.maxSingle) || value.maxSingle < 1 || value.maxSingle > 100 || !Number.isFinite(value.maxGross) || value.maxGross < 1 || value.maxGross > 100 || !Number.isInteger(value.maxPositions) || value.maxPositions < 1 || value.maxPositions > 20 || ![1, 5, 15, 30].includes(value.reviewMinutes)) throw new Error('请检查组合目标和仓位设置');
+  if (!value || typeof value.id !== 'string' || typeof value.name !== 'string' || !value.name.trim() || value.name.length > 80 || typeof value.goal !== 'string' || !value.goal.trim() || value.goal.length > 16000 || typeof value.news !== 'boolean' || !Number.isFinite(value.maxSingle) || value.maxSingle < 1 || value.maxSingle > 100 || !Number.isFinite(value.maxGross) || value.maxGross < 1 || value.maxGross > 100 || !Number.isInteger(value.maxPositions) || value.maxPositions < 1 || value.maxPositions > 20 || ![1, 5, 15, 30].includes(value.reviewMinutes)) throw new Error('请检查组合目标和仓位设置');
   if (value.instrument && (!isInstrumentTicker(value.instrument.ticker) || typeof value.instrument.name !== 'string' || !['CN','US','CRYPTO'].includes(value.instrument.market))) throw new Error('策略标的无效');
   if (value.execution) validateStrategyConfig(value.execution);
   if (value.summary !== undefined && (typeof value.summary !== 'string' || value.summary.length > 800)) throw new Error('策略说明无效');
-  if (value.sourceGoal !== undefined && (typeof value.sourceGoal!=='string'||value.sourceGoal.length>2000)) throw new Error('原始策略目标无效');
+  if (value.sourceGoal !== undefined && (typeof value.sourceGoal!=='string'||value.sourceGoal.length>16000)) throw new Error('原始策略目标无效');
   if (value.goalMode !== undefined && value.goalMode !== 'generated') throw new Error('策略目标来源无效');
   if (value.revision !== undefined && (!Number.isSafeInteger(value.revision) || value.revision < 1)) throw new Error('策略版本无效');
   return structuredClone(value);
@@ -113,8 +114,10 @@ export function applyStockTarget(input: Portfolio, binding: StockBinding, weight
   if (issue) throw new Error(issue);
   const equity = portfolioEquity(input, quotes), holding = input.positions.find(h => h.ticker === binding.ticker), unit = input.market === 'CRYPTO' ? 1e-8 : input.market === 'CN' ? 100 : 1;
   const desired = Math.floor(equity * weight / 100 / quote.price / unit + 1e-9) * unit;
-  const delta = desired - (holding?.shares ?? 0);
-  if (!delta || !binding.config.plan && holding && weight > 0 && Math.abs(delta) * quote.price < equity * .005) return input;
+  const delta = binding.config.allocation ? rebalanceQuantity(input.cash, holding?.shares ?? 0, quote.price, weight,
+    binding.config.feeBps, binding.config.slippageBps, unit, equity) : desired - (holding?.shares ?? 0);
+  if (binding.config.allocation && Math.abs(weight - (holding?.shares ?? 0) * quote.price / equity * 100) <= binding.config.allocation.rebalanceThresholdPct) return input;
+  if (!delta || !binding.config.plan && !binding.config.allocation && holding && weight > 0 && Math.abs(delta) * quote.price < equity * .005) return input;
   const side = delta > 0 ? 'buy' : 'sell';
   let quantity = Math.abs(delta);
   const c = validateStrategyConfig(binding.config);

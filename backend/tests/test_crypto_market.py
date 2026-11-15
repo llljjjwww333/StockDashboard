@@ -8,6 +8,19 @@ from app.services.daily_history import completed_daily_bars
 ROW = dict(symbol='BTCUSDT', lastPrice='75000.01', volume='0.12345678', quoteVolume='9259.26', priceChange='100', priceChangePercent='0.1', openPrice='74900.01', highPrice='76000', lowPrice='74000', closeTime=1794124800000)
 
 class CryptoMarketTests(unittest.IsolatedAsyncioTestCase):
+    async def test_explicit_daily_range_pages_from_the_requested_utc_start_and_end(self):
+        calls=[]
+        start=int(datetime(2017,8,17,tzinfo=timezone.utc).timestamp()*1000)
+        end=int(datetime(2026,11,15,tzinfo=timezone.utc).timestamp()*1000)-1
+        def fetch(path,params):
+            calls.append(params)
+            return [[stamp,'100','102','99','101','.1234'] for stamp in range(params['startTime'],params['endTime']+1,86400000)]
+        history=await CryptoMarket(fetch).history('BTCUSDT','1y','1d','2017-08-17','2026-11-14')
+        self.assertEqual(len(calls),4);self.assertEqual(calls[0]['startTime'],start)
+        self.assertEqual(calls[-1]['endTime'],end)
+        self.assertEqual(history.data[0].timestamp[:10],'2017-08-17')
+        self.assertEqual(history.data[-1].timestamp[:10],'2026-11-14')
+        self.assertEqual(len(history.data),3377)
     async def test_quotes_use_one_selected_batch_and_retain_fractional_units(self):
         calls=[]
         def fetch(path, params):

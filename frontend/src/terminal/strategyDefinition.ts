@@ -4,12 +4,15 @@ import { parseStrategyRules, validateStrategyRuleSemantics } from './strategyRul
 import { validMandate, type Mandate } from './portfolio.ts';
 import type { WatchlistStock } from '../store/stockStore';
 import { describeStrategyGoal } from './strategyDescription.ts';
-import { strategyCapabilityIssues } from './strategyCapabilities.ts';
+import { strategyCapabilityIssues, volatilityAllocationGoal } from './strategyCapabilities.ts';
 import { parseStagedPlan } from './stagedPlan.ts';
+import { parseAllocation } from './volatilityAllocation.ts';
 
 export function executableStrategy(strategy: Mandate) {
   if (!strategy.execution || !strategy.instrument || strategy.executionTicker !== strategy.instrument.ticker || strategy.executionGoal !== strategy.goal) return false;
   if (!strategy.execution.plan && strategyCapabilityIssues(strategy.goal).length) return false;
+  if (volatilityAllocationGoal(strategy.goal) && !strategy.execution.allocation) return false;
+  if (strategy.instrument.market === 'CRYPTO' && strategy.execution.allocation && strategy.execution.allocation.annualization !== 365) return false;
   try { const config = validateStrategyConfig({ ...strategy.execution, positionPct: strategy.maxSingle }); if (config.rules) validateStrategyRuleSemantics(config.rules); return true; } catch { return false; }
 }
 export function applyGeneratedStrategy(strategy: Mandate, instrument: WatchlistStock, value: unknown, language: 'zh' | 'en' = 'zh'): Mandate {
@@ -22,7 +25,9 @@ export function applyGeneratedStrategy(strategy: Mandate, instrument: WatchlistS
     reviewMinutes: p.review_minutes as number, news: p.news as boolean, execution: undefined,
   });
   if(!execution.plan&&strategyCapabilityIssues(strategy.goal).length)throw new Error('分批目标必须返回完整分批计划，不能替换为简单均线策略');
-  return withExecution({ ...next, ...(execution.plan?{sourceGoal:strategy.goal}:{}),goalMode: 'generated', goal:execution.plan?strategy.goal:describeStrategyGoal(instrument.ticker, execution, language) }, execution);
+  if (volatilityAllocationGoal(strategy.goal) && !execution.allocation) throw new Error('AI未返回目标中的波动率动态仓位公式');
+  if (execution.allocation && instrument.market === 'CRYPTO' && execution.allocation.annualization !== 365) throw new Error('虚拟币波动率应按365日年化');
+  return withExecution({ ...next, sourceGoal:strategy.goal, goalMode: 'generated', goal:execution.plan?strategy.goal:describeStrategyGoal(instrument.ticker, execution, language) }, execution);
 }
 export function editStrategyExecution(strategy: Mandate, instrument: WatchlistStock, config: StrategyConfig, bind = false, language: 'zh' | 'en' = 'zh'): Mandate {
   const canDescribe = strategy.goalMode === 'generated' && (bind || strategy.executionGoal === strategy.goal && strategy.executionTicker === instrument.ticker);
@@ -51,7 +56,15 @@ export function generatedExecution(value: unknown, positionPct: number): Strateg
   if(p.plan){const plan=parseStagedPlan(p.plan);return validateStrategyConfig({...strategyDefaults,kind:'custom',plan,rules:null,positionPct,stopLossPct:plan.stopLossPct,takeProfitPct:0});}
   const rules = parseStrategyRules(p.rules);
   validateStrategyRuleSemantics(rules);
-  return validateStrategyConfig({ ...strategyDefaults, kind: 'custom', rules, positionPct, stopLossPct: p.stop_loss_pct as number, takeProfitPct: p.take_profit_pct as number });
+  const environment: Partial<StrategyConfig> = {};
+  if (p.environment && typeof p.environment === 'object') {
+    for (const key of ['feeBps','slippageBps','startDate','endDate','dataStartDate','dataEndDate'] as const) {
+      if (Object.hasOwn(p.environment,key)) Object.assign(environment, { [key]: (p.environment as Record<string, unknown>)[key] });
+    }
+  }
+  return validateStrategyConfig({ ...strategyDefaults, ...environment, kind: 'custom', rules,
+    allocation: p.allocation ? parseAllocation(p.allocation) : null,
+    positionPct, stopLossPct: p.stop_loss_pct as number, takeProfitPct: p.take_profit_pct as number });
 }
 export type BacktestEnvironment = { capital: number; feeBps: number; slippageBps: number; startDate: string; endDate: string; lotSize: number; liquidateEnd: boolean };
 export function strategyBacktestConfig(strategy: Mandate, environment: BacktestEnvironment) {

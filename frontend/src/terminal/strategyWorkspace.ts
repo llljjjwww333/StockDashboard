@@ -43,7 +43,7 @@ export function parseStrategyLibrary(raw: string | null): { reports: StrategyRep
             typeof s.createdAt !== 'string' || !Number.isFinite(Date.parse(s.createdAt)) ||
             !['1y', '3mo'].includes(s.period) || typeof s.source !== 'string' || s.source.length > 200 ||
             typeof s.adjustment !== 'string' || s.adjustment.length > 100 || typeof s.stale !== 'boolean' ||
-            !Array.isArray(s.bars) || s.bars.length > 1500) throw new Error();
+            !Array.isArray(s.bars) || s.bars.length > 12000) throw new Error();
         const config = validateStrategyConfig(s.config);
         if (s.ai && parseAiStrategyOrigin(s.ai).generation.ticker !== s.instrument.ticker) throw new Error();
         const result = runBacktest(s.bars, config);
@@ -52,7 +52,7 @@ export function parseStrategyLibrary(raw: string | null): { reports: StrategyRep
           period: s.period, source: s.source, adjustment: s.adjustment, stale: s.stale,
           bars: s.bars.map(p => ({ timestamp: p.timestamp, open: p.open, high: p.high, low: p.low, close: p.close, volume: Number.isFinite(p.volume) ? p.volume : 0 })),
           ...(s.ai ? { ai: parseAiStrategyOrigin(s.ai) } : {}),
-          ...(s.strategy && typeof s.strategy.id === 'string' && Number.isSafeInteger(s.strategy.revision) && s.strategy.revision > 0 && typeof s.strategy.goal === 'string' && s.strategy.goal.length <= 2000 ? { strategy: { id: s.strategy.id, revision: s.strategy.revision, goal: s.strategy.goal, executionMode: 'rules' } } : {}) };
+          ...(s.strategy && typeof s.strategy.id === 'string' && Number.isSafeInteger(s.strategy.revision) && s.strategy.revision > 0 && typeof s.strategy.goal === 'string' && s.strategy.goal.length <= 16000 ? { strategy: { id: s.strategy.id, revision: s.strategy.revision, goal: s.strategy.goal, executionMode: 'rules' } } : {}) };
         reports.push({ snapshot, result }); ids.add(s.id);
       } catch { damaged = true; }
     }

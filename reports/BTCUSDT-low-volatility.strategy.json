@@ -1,0 +1,117 @@
+{
+  "id": "btc-usdt-low-volatility-20261115",
+  "name": "BTC/USDT 低波动策略",
+  "goal": "仅交易BTCUSDT，现货只做多，初始现金。\n买入（全部满足：收盘价 大于 SMA(200) × 1.01；MOM(90) 大于 0）。\n清仓（任一满足：收盘价 小于等于 SMA(200) × 1.01；MOM(90) 小于等于 0）。\n目标波动率10%，对数收益率30日样本标准差×√365；信号成立w=min(45%,max(0%,10%/σ30))，失效w=0。\n每日严格再平衡，阈值0个百分点；1D UTC完整日K收盘计算，次日开盘执行；止损0%，止盈0%。\n手续费10基点，滑点5基点；数据2017-08-17至2026-11-14，交易2018-03-06至2026-11-14。",
+  "maxSingle": 45,
+  "maxGross": 45,
+  "maxPositions": 1,
+  "reviewMinutes": 30,
+  "news": false,
+  "instrument": {
+    "ticker": "BTCUSDT",
+    "name": "Bitcoin / USDT",
+    "market": "CRYPTO"
+  },
+  "sourceGoal": "BTC/USDT 低波动量化策略参数表\n基础配置\n交易对 BTC/USDT\n市场 现货\n交易方向 只做多\n杠杆 1×，不借贷\nK线周期 1D\nK线时区 UTC\n信号计算 每日00:00 UTC\n执行时间 下一根日K开盘\n再平衡频率 每日\n空仓资产 USDT\n空仓资金收益假设 0%\n技术指标参数\nSMA 200 收盘价 > SMA200 × 1.01\nMomentum 90日 MOM90 > 0\n历史波动率 30日 对数收益率标准差\n年化系数 √365 每日连续交易\n目标波动率 10% 年化\n最大BTC仓位 45% 账户总净资产\n最小BTC仓位 0% 允许完全空仓\n开平仓参数\n开多 Close > SMA200 × 1.01 且 MOM90 > 0\n清仓 Close ≤ SMA200 × 1.01\n清仓 MOM90 ≤ 0\n加仓 新目标仓位 > 当前仓位\n减仓 新目标仓位 < 当前仓位\n再平衡阈值 0%，每日严格再平衡\n固定止盈 不设置\n固定止损 不设置\n移动止损 不设置\n做空 禁止\n动态仓位 w=min(45%,10%/σ30)，仅在开仓条件成立时使用，否则w=0。\nBTC年化波动率 20% 目标BTC仓位45.00%；30%对应33.33%；40%对应25%；50%对应20%；60%对应16.67%；70%对应14.29%；80%对应12.50%；100%对应10%。\n成本与回测参数\n历史数据 Binance BTC/USDT\n数据周期 2017-08-17至2026-11-14\n回测交易区间 2018-03-06至2026-11-14\n手续费假设 单边0.10%\n滑点假设 单边0.05%\n单边总交易成本 0.15%\n信号延迟 使用上一根完整日K\n未来数据 禁止\n复利 开启\n仓位计算基准 账户总净资产\n历史模拟结果（用户提供）\n年化收益率 8.0%；累计收益率95.2%；最大回撤-9.2%；年化波动率7.7%；夏普1.04；平均BTC仓位9.9%。\n当前信号（2026-11-14收盘）：空仓，BTC目标仓位0%。",
+  "goalMode": "generated",
+  "summary": "SMA200缓冲与90日动量过滤，按30日历史波动率每日调整BTC目标仓位。",
+  "execution": {
+    "sessionsPerYear": 365,
+    "kind": "custom",
+    "fast": 5,
+    "slow": 20,
+    "capital": 100000,
+    "feeBps": 10,
+    "slippageBps": 5,
+    "positionPct": 45,
+    "stopLossPct": 0,
+    "takeProfitPct": 0,
+    "lotSize": 0,
+    "bandWidth": 2,
+    "startDate": "2018-03-06",
+    "endDate": "2026-11-14",
+    "liquidateEnd": false,
+    "signalPeriod": 9,
+    "entryThreshold": 30,
+    "exitThreshold": 70,
+    "atrMultiplier": 2,
+    "adxThreshold": 25,
+    "volumeMultiplier": 1.5,
+    "momentumThreshold": 0,
+    "rules": {
+      "entry": {
+        "mode": "all",
+        "conditions": [
+          {
+            "left": {
+              "indicator": "close"
+            },
+            "operator": "gt",
+            "right": {
+              "indicator": "sma",
+              "period": 200,
+              "factor": 1.01
+            }
+          },
+          {
+            "left": {
+              "indicator": "momentum",
+              "period": 90
+            },
+            "operator": "gt",
+            "right": {
+              "value": 0
+            }
+          }
+        ]
+      },
+      "exit": {
+        "mode": "any",
+        "conditions": [
+          {
+            "left": {
+              "indicator": "close"
+            },
+            "operator": "lte",
+            "right": {
+              "indicator": "sma",
+              "period": 200,
+              "factor": 1.01
+            }
+          },
+          {
+            "left": {
+              "indicator": "momentum",
+              "period": 90
+            },
+            "operator": "lte",
+            "right": {
+              "value": 0
+            }
+          }
+        ]
+      }
+    },
+    "plan": null,
+    "allocation": {
+      "method": "volatility_target",
+      "period": 30,
+      "targetVolPct": 10,
+      "minPositionPct": 0,
+      "annualization": 365,
+      "ddof": 1,
+      "rebalanceThresholdPct": 0
+    },
+    "dataStartDate": "2017-08-17",
+    "dataEndDate": "2026-11-14",
+    "regimeMethods": {
+      "trend": "ema",
+      "range": "bands",
+      "volatile": "breakout",
+      "defensive": "cash"
+    }
+  },
+  "executionGoal": "仅交易BTCUSDT，现货只做多，初始现金。\n买入（全部满足：收盘价 大于 SMA(200) × 1.01；MOM(90) 大于 0）。\n清仓（任一满足：收盘价 小于等于 SMA(200) × 1.01；MOM(90) 小于等于 0）。\n目标波动率10%，对数收益率30日样本标准差×√365；信号成立w=min(45%,max(0%,10%/σ30))，失效w=0。\n每日严格再平衡，阈值0个百分点；1D UTC完整日K收盘计算，次日开盘执行；止损0%，止盈0%。\n手续费10基点，滑点5基点；数据2017-08-17至2026-11-14，交易2018-03-06至2026-11-14。",
+  "executionTicker": "BTCUSDT",
+  "revision": 1
+}

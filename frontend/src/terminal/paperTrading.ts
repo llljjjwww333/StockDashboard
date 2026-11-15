@@ -5,6 +5,7 @@ import { isCryptoTicker, isChinaEquity, isChinaIndex, isChinaTicker } from '../l
 import { marketPhase } from './marketSession.ts';
 import { previousTradingDay, completedDailyBars } from './dailyHistory.ts';
 import type { HistoryPoint, Quote } from './types';
+import { annualizedLogVolatility, allocationWeight } from './volatilityAllocation.ts';
 
 export type PaperFill = { id: string; time: string; side: 'buy' | 'sell'; quantity: number; price: number; fee: number; reason: string; source: string; quoteTime: string; cash: number; realized: number };
 export type PaperAccount = {
@@ -72,7 +73,9 @@ export function paperDecision(account: PaperAccount, input: HistoryPoint[], now:
     if (c.stopLossPct > 0 && change <= -c.stopLossPct / 100) { target = false; reason = '收盘止损'; }
     else if (c.takeProfitPct > 0 && change >= c.takeProfitPct / 100) { target = false; reason = '收盘止盈'; }
   }
-  return { target, reason, signal: bars[i].timestamp.slice(0, 10), regime: signals.regimes?.[i] };
+  const volatility = c.allocation ? annualizedLogVolatility(bars, c.allocation)[i] : null;
+  const targetPct = c.allocation ? allocationWeight(target, volatility, c.allocation, c.positionPct) : target ? c.positionPct : 0;
+  return { target, targetPct, reason, signal: bars[i].timestamp.slice(0, 10), regime: signals.regimes?.[i] };
 }
 export function paperOrderQuantity(account: PaperAccount, quote: Quote) {
   const c = validateStrategyConfig(account.config), lot = c.lotSize || (isCryptoTicker(account.ticker) ? 1e-8 : 1);

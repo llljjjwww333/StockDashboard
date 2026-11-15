@@ -128,9 +128,11 @@ async def close_ai_jobs():
 
 
 @router.get("/stocks/{ticker}/history", response_model=StockHistoryResponse)
-async def get_stock_history(ticker: str, period: str = Query("1y", description="Time period: 1d, 5d, 1mo, 3mo, 1y; legacy 1wk aliases 5d"), interval: str = Query("1d", description="Interval: 1m, 5m, 15m, 30m, 1h, 1d, 1wk, 1mo"), candles: bool = Query(False, description="Request genuine minute OHLC candles instead of price snapshots")):
+async def get_stock_history(ticker: str, period: str = Query("1y", description="Time period: 1d, 5d, 1mo, 3mo, 1y; legacy 1wk aliases 5d"), interval: str = Query("1d", description="Interval: 1m, 5m, 15m, 30m, 1h, 1d, 1wk, 1mo"), candles: bool = Query(False, description="Request genuine minute OHLC candles instead of price snapshots"), start: str | None = None, end: str | None = None):
     """Get historical stock data for a given ticker"""
     try:
+        if (start or end) and is_crypto(ticker):
+            return await crypto_market.history(ticker, period, interval, start, end)
         history = await stock_service.get_historical_data(ticker, period, interval, candles=candles)
         return history
     except DataSourceUnavailable as e:

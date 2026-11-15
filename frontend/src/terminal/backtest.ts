@@ -3,6 +3,7 @@ import { getStrategy, defaultRegimeMethods, type Regime, type RegimeMethod, type
 import { strategySignals } from './strategySignals.ts';
 import { parseStrategyRules, rulesNeedVolume, type CustomStrategyRules } from './strategyRules.ts';
 import { parseStagedPlan, stagedEvaluator, stagedPurchaseQuantity, type StagedPlan } from './stagedPlan.ts';
+import { parseAllocation, annualizedLogVolatility, allocationWeight, rebalanceQuantity, type VolatilityAllocation } from './volatilityAllocation.ts';
 
 export type StrategyConfig = {
   sessionsPerYear?: number;
@@ -15,6 +16,8 @@ export type StrategyConfig = {
   adxThreshold?: number; volumeMultiplier?: number; momentumThreshold?: number;
   rules?: CustomStrategyRules | null;
   plan?: StagedPlan | null;
+  allocation?: VolatilityAllocation | null;
+  dataStartDate?: string; dataEndDate?: string;
 };
 export const strategyDefaults: StrategyConfig = {
   sessionsPerYear: 252, kind: 'sma', fast: 5, slow: 20, capital: 100000, feeBps: 5, slippageBps: 5,
@@ -22,7 +25,7 @@ export const strategyDefaults: StrategyConfig = {
   startDate: '', endDate: '', liquidateEnd: false,
   signalPeriod: 9, entryThreshold: 30, exitThreshold: 70, atrMultiplier: 2,
   adxThreshold: 25, volumeMultiplier: 1.5, momentumThreshold: 0,
-  rules: null, plan: null, regimeMethods: defaultRegimeMethods,
+  rules: null, plan: null, allocation: null, dataStartDate: '', dataEndDate: '', regimeMethods: defaultRegimeMethods,
 };
 export type ExitReason = 'signal' | 'stop' | 'profit' | 'end';
 export type StrategyTrade = {
@@ -63,6 +66,9 @@ export function validateStrategyConfig(config: StrategyConfig) {
   c.regimeMethods = { ...defaultRegimeMethods, ...c.regimeMethods };
   if (Object.keys(c.regimeMethods).length !== 4 || Object.values(c.regimeMethods).some(k => k !== 'cash' && (!getStrategy(k) || String(k) === 'adaptive'))) throw new Error('状态策略映射无效。');
   c.plan = c.kind === 'custom' && c.plan ? parseStagedPlan(c.plan) : null;
+  c.allocation = c.kind === 'custom' && c.allocation ? parseAllocation(c.allocation) : null;
+  if (c.allocation) c.sessionsPerYear = c.allocation.annualization;
+  if (c.allocation && (c.plan || c.allocation.minPositionPct > c.positionPct!)) throw new Error('动态仓位与规则或仓位上限不一致');
   c.rules = !c.plan && (c.kind === 'custom' || c.kind === 'adaptive' && Object.values(c.regimeMethods).includes('custom')) ? parseStrategyRules(c.rules) : null;
   if(c.plan && c.positionPct!==c.plan.maxPositionPct)throw new Error('分批计划与仓位上限不一致');
   if (!Number.isInteger(c.fast) || !Number.isInteger(c.slow) ||
@@ -82,6 +88,9 @@ export function validateStrategyConfig(config: StrategyConfig) {
       typeof c.startDate !== 'string' || typeof c.endDate !== 'string' ||
       c.startDate && !validDate(c.startDate) || c.endDate && !validDate(c.endDate) ||
       c.startDate && c.endDate && c.startDate > c.endDate) throw new Error('回测日期或交易单位无效。');
+  if ([c.dataStartDate,c.dataEndDate].some(value => typeof value !== 'string' || value && !validDate(value)) ||
+      Boolean(c.dataStartDate) !== Boolean(c.dataEndDate) ||
+      c.dataStartDate && c.dataEndDate && c.dataStartDate > c.dataEndDate) throw new Error('历史数据日期范围无效');
   return c as Required<StrategyConfig>;
 }
 
@@ -91,6 +100,7 @@ export function configForStrategy(config: StrategyConfig, kind: StrategyKind): S
   const next = { ...strategyDefaults, ...definition.defaults, kind };
   if (kind === 'custom' || kind === 'adaptive') next.rules = config.rules ?? null;
   if (kind === 'custom') next.plan = config.plan ?? null;
+  if (kind === 'custom') next.allocation = config.allocation ?? null;
   if (kind === 'adaptive' && config.kind === 'custom' && config.rules) next.regimeMethods = { ...defaultRegimeMethods, trend: 'custom' };
   else if (kind === 'adaptive' && config.kind === 'adaptive') next.regimeMethods = { ...defaultRegimeMethods, ...config.regimeMethods };
   for (const key of ['capital', 'feeBps', 'slippageBps', 'positionPct', 'stopLossPct', 'takeProfitPct', 'lotSize', 'startDate', 'endDate', 'liquidateEnd'] as const) {
@@ -133,6 +143,7 @@ export function runBacktest(input: HistoryPoint[], config: StrategyConfig): Back
   const benchmarkCash = c.capital - benchmarkShares * benchmarkPrice * (1 + feeRate);
   const signals = c.plan ? {enter:data.map(()=>false),exit:data.map(()=>false),regimes:undefined} : strategySignals(data, c);
   const staged = c.plan ? stagedEvaluator(data,c.plan) : null, usedStages=new Set<string>();
+  const logVolatility = c.allocation ? annualizedLogVolatility(data, c.allocation) : null;
   let reduction:{stage:string;label:string;targetShares:number}|null=null;
   let stagedEntries=0,stagedExits=0;
   const regimes: NonNullable<BacktestResult['regimes']> = [];
@@ -183,7 +194,21 @@ export function runBacktest(input: HistoryPoint[], config: StrategyConfig): Back
       if (c.stopLossPct > 0 && change <= -c.stopLossPct / 100) { target = false; reason = 'stop'; }
       else if (c.takeProfitPct > 0 && change >= c.takeProfitPct / 100) { target = false; reason = 'profit'; }
     }
-    if (!staged && target && shares === 0) {
+    if (c.allocation && logVolatility) {
+      const targetPct = allocationWeight(target, logVolatility[signal], c.allocation, c.positionPct);
+      const openEquity = cash + shares * p.open, currentPct = shares * p.open / openEquity * 100;
+      const delta = Math.abs(targetPct - currentPct) <= c.allocation.rebalanceThresholdPct ? 0 :
+        rebalanceQuantity(cash, shares, p.open, targetPct, c.feeBps, c.slippageBps, c.lotSize);
+      if (delta > 1e-12) {
+        const price = p.open * (1 + slip), fee = delta * price * feeRate, cost = delta * price + fee, oldShares = shares;
+        shares += delta; cash -= cost; totalFees += fee;
+        const priorEntry = entry as Entry | null;
+        entry = priorEntry ? { ...priorEntry, price: (priorEntry.price * oldShares + price * delta) / shares,
+          cost: priorEntry.cost + cost, fee: priorEntry.fee + fee } : { date: p.timestamp, price, cost, fee, index: i };
+        trades.push({ date: p.timestamp, signalDate: previous.timestamp, side: 'buy', reason, price, shares: delta,
+          fee, equity: cash + shares * p.open, cash, stage: 'rebalance', detail: `目标仓位 ${targetPct.toFixed(4)}%` });
+      } else if (delta < -1e-12) sell(p, i, p.open, reason, previous.timestamp, -delta, 'rebalance', `目标仓位 ${targetPct.toFixed(4)}%`);
+    } else if (!staged && target && shares === 0) {
       const price = p.open * (1 + slip), qty = units(cash * c.positionPct / 100, price);
       if (qty > 0) {
         shares = qty;

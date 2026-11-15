@@ -5,15 +5,16 @@ from datetime import datetime, timezone
 from typing import Literal
 from pydantic import BaseModel, Field, FiniteFloat, ValidationError, model_validator
 from app.schemas.analysis import ProviderConfig
-from app.schemas.strategy import StrictModel, StrategyRules
+from app.schemas.strategy import StrictModel, StrategyRules, VolatilityAllocation, DesignEnvironment
 from app.services.analysis_service import ProviderError, request_model, chart_evidence
 from app.services.strategy_generation import proposal_warmup
 from app.services.daily_history import completed_daily_bars
 from app.services.strategy_description import execution_description
 from app.schemas.staged_strategy import StagedPlan, staged_warmup
 from app.services.staged_compiler import compile_staged_goal
-from app.services.strategy_capabilities import strategy_capability_issues
+from app.services.strategy_capabilities import strategy_capability_issues, volatility_allocation_goal
 from app.services.crypto_market import is_crypto
+from app.services.strategy_goal_coverage import validate_volatility_goal
 
 
 class Holding(StrictModel):
@@ -27,7 +28,7 @@ class PortfolioReviewRequest(BaseModel):
     settings: ProviderConfig
     language: Literal['zh', 'en'] = 'zh'
     market: Literal['CN', 'US', 'CRYPTO']
-    goal: str = Field(min_length=1, max_length=2000)
+    goal: str = Field(min_length=1, max_length=16000)
     universe: list[str] = Field(min_length=1, max_length=1)
     holdings: list[Holding] = Field(default_factory=list, max_length=1)
     cash: FiniteFloat = Field(ge=0, le=1e12)
@@ -77,7 +78,7 @@ class PortfolioDecision(StrictModel):
 class PortfolioDesignRequest(BaseModel):
     ticker: str = Field(min_length=1, max_length=20, pattern=r'^[A-Z0-9][A-Z0-9.^-]{0,19}$')
     settings: ProviderConfig | None = None
-    goal: str = Field(min_length=1, max_length=2000)
+    goal: str = Field(min_length=1, max_length=16000)
     market: Literal['CN', 'US', 'CRYPTO'] = 'CN'
     language: Literal['zh', 'en'] = 'zh'
 
@@ -85,6 +86,8 @@ class PortfolioDesignRequest(BaseModel):
 class ExecutableDesign(StrictModel):
     plan: StagedPlan | None = None
     rules: StrategyRules | None = None
+    allocation: VolatilityAllocation | None = None
+    environment: DesignEnvironment | None = None
     stop_loss_pct: FiniteFloat = Field(ge=0, le=100)
     take_profit_pct: FiniteFloat = Field(ge=0, le=1000)
 
@@ -92,12 +95,14 @@ class ExecutableDesign(StrictModel):
     def one_definition(self):
         if (self.rules is None) == (self.plan is None):
             raise ValueError('必须提供一份规则或分批计划')
+        if self.allocation and self.plan:
+            raise ValueError('波动率仓位应与买卖规则一起使用')
         return self
 
 
 class PortfolioDesign(StrictModel):
     name: str = Field(min_length=1, max_length=80)
-    goal: str = Field(min_length=1, max_length=2000)
+    goal: str = Field(min_length=1, max_length=16000)
     max_single_pct: FiniteFloat = Field(ge=1, le=100)
     review_minutes: Literal[1, 5, 15, 30]
     news: bool
@@ -131,9 +136,26 @@ async def design_portfolio(request: PortfolioDesignRequest, service):
     terms = [request.ticker.casefold(), str((q or {}).get('name') or '').casefold()]
     news = [] if isinstance(feed, Exception) else sorted(feed.items, key=lambda n: sum(bool(term) and term in (n.title + n.summary).casefold() for term in terms), reverse=True)[:8]
     context = {'ticker': request.ticker, 'captured_at': datetime.now(timezone.utc).isoformat(), 'quote': q,
+               'available_history_bars': len(bars),
                'bars': [b.model_dump() for b in bars[-80:]], 'indicators': indicators,
                'news': [n.model_dump() for n in news]}
+    instructions = (
+        '将用户参数表直接转换为可执行结构，逐项保留用户给出的指标、周期、比较符、系数、仓位、成本和日期。'
+        '不要把每日再平衡的加减仓误写成分批量价计划。'
+        '支持指标乘数factor，例如Close>SMA200×1.01必须使用right={indicator:sma,period:200,factor:1.01}。'
+        'momentum为Close-Close[period]，ROC为百分比收益率，MOM90>0可直接写momentum周期90>0。'
+        '波动率动态仓位使用execution.rules加execution.allocation，method=volatility_target；'
+        'period为对数收益率标准差窗口，targetVolPct为年化目标波动率百分数，annualization为年化日数，'
+        'ddof为0总体或1样本（未说明时填1），minPositionPct为信号成立时的仓位下限，'
+        'rebalanceThresholdPct为目标与当前仓位差的百分点阈值。'
+        '信号成立时目标仓位百分数=min(max_single_pct,max(minPositionPct,targetVolPct/年化对数收益波动率))，'
+        '信号失效仓位0，不能把它改成固定仓位。365天市场使用UTC日线，每日完成日K收盘判断、下一根开盘执行。'
+        '用户明确成本和日期时填写execution.environment：feeBps/slippageBps单位为基点（0.10%=10bp，0.05%=5bp），'
+        'startDate/endDate为交易区间，dataStartDate/dataEndDate为数据区间。不设置止盈止损时填0。'
+        '历史模拟收益数字及当前信号只作为用户提供的文字，不把它们冒充重新计算的结果。'
+    )
     raw = await asyncio.to_thread(request_model, request.settings,
+        instructions +
         '仅针对context.ticker这一只股票设计可执行交易策略，严格返回JSON Schema。不要做全市场宏观投资。execution必须包含实际买卖规则及收盘止盈止损，不能只输出文字目标。规则只使用schema限定的OHLCV指标及比较符，每组all/any连接1至6个条件，cross_above/cross_below需要前后两日。量比必须比较数值阈值或另一量比，不能与SMA等价格指标比较。MACD固定12/26/9，ROC与ATR百分比单位为百分数，volume_ratio为当日量除以前期均量。goal必须准确描述execution中的规则，分批加减仓、连续确认、区间高低点和形态条件必须返回完整execution.plan；简单策略使用rules。plan与rules只填一个，未指定的判定口径必须在plan.assumptions说明。不得伪造未提供的盘口或历史新闻条件。新闻只作为当前研究依据，不伪造历史新闻因子。收盘生成信号，次日开盘成交；止损止盈相对开仓价，0为关闭。max_single_pct为该股占账户最大比例。初始现金，允许等待，不强制成交，不编造数据收益。指标预热不得超过可用历史。用户目标中可支持的指标和数值必须逐项写入execution，不能只保留默认均线。不得把分批目标偷换成简单均线策略。summary简述策略及调整。' + ('自然语言英文。' if request.language == 'en' else '自然语言简洁中文。'),
         {'goal': request.goal, 'context': context, 'output_schema': PortfolioDesign.model_json_schema()})
     try:
@@ -142,10 +164,16 @@ async def design_portfolio(request: PortfolioDesignRequest, service):
         if any('指标比较不匹配' in error['msg'] for error in exc.errors()):
             raise ProviderError('模型返回了不兼容的指标比较，请使用数值阈值或同类指标后重新生成') from None
         raise ProviderError('模型未返回有效的买卖规则，请重新生成') from None
+    if volatility_allocation_goal(request.goal):
+        validate_volatility_goal(request.goal, proposal)
     warmup = staged_warmup(proposal.execution.plan) if proposal.execution.plan else proposal_warmup(proposal.execution)
     if bars and warmup >= len(bars):
         raise ProviderError('规则周期超过可用历史，请缩短周期')
     # Never display a separately invented prose strategy alongside different rules.
+    if volatility_allocation_goal(request.goal) and not proposal.execution.allocation:
+        raise ProviderError('模型未返回目标中的波动率动态仓位公式，请重新生成')
+    if proposal.execution.allocation and (proposal.execution.allocation.minPositionPct > proposal.max_single_pct or request.market == 'CRYPTO' and proposal.execution.allocation.annualization != 365):
+        raise ProviderError('动态仓位参数与市场或仓位上限不一致')
     if not proposal.execution.plan and strategy_capability_issues(request.goal):
         raise ProviderError('分批目标必须返回完整分批计划，不能替换成简单均线规则')
     if proposal.execution.plan:

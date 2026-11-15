@@ -2,10 +2,10 @@ import type { HistoryPoint } from './types';
 import { adxSeries, atrSeries, bollingerSeries, cciSeries, ema, obvSeries, rangePosition, rocSeries, rsiSeries, sma, type Series } from './technicalSeries.ts';
 
 export const directIndicators = ['close', 'open', 'high', 'low', 'volume', 'obv', 'macd', 'macd_signal'] as const;
-export const periodIndicators = ['sma', 'ema', 'rsi', 'roc', 'atr_pct', 'volume_ratio', 'cci', 'williams', 'adx'] as const;
+export const periodIndicators = ['sma', 'ema', 'rsi', 'roc', 'momentum', 'atr_pct', 'volume_ratio', 'cci', 'williams', 'adx'] as const;
 export const bandIndicators = ['boll_upper', 'boll_lower'] as const;
 export type RuleIndicator = typeof directIndicators[number] | typeof periodIndicators[number] | typeof bandIndicators[number];
-export type RuleOperand = { value: number } | { indicator: typeof directIndicators[number] } | { indicator: typeof periodIndicators[number]; period: number } | { indicator: typeof bandIndicators[number]; period: number; multiplier: number };
+export type RuleOperand = { value: number } | (({ indicator: typeof directIndicators[number] } | { indicator: typeof periodIndicators[number]; period: number } | { indicator: typeof bandIndicators[number]; period: number; multiplier: number }) & { factor?: number });
 export const ruleOperators = ['gt', 'gte', 'lt', 'lte', 'cross_above', 'cross_below'] as const;
 export type RuleCondition = { left: RuleOperand; operator: typeof ruleOperators[number]; right: RuleOperand };
 export type RuleGroup = { mode: 'all' | 'any'; conditions: RuleCondition[] };
@@ -41,11 +41,14 @@ export function parseRuleOperand(value: unknown): RuleOperand {
   if (only(value, ['value']) && typeof value.value === 'number' && Number.isFinite(value.value) && Math.abs(value.value) <= 1e12) return { value: value.value };
   const name = value.indicator;
   if (typeof name !== 'string') throw new Error('策略规则格式无效。');
-  if ((directIndicators as readonly string[]).includes(name) && only(value, ['indicator'])) return { indicator: name } as RuleOperand;
+  const factor = value.factor;
+  if (factor !== undefined && factor !== null && (typeof factor !== 'number' || !Number.isFinite(factor) || factor <= 0 || factor > 1000)) throw new Error('指标系数无效');
+  const scaled = typeof factor === 'number' && factor !== 1 ? { factor } : {};
+  if ((directIndicators as readonly string[]).includes(name) && only(value, ['indicator', 'factor'])) return { indicator: name, ...scaled } as RuleOperand;
   const period = value.period;
   if (typeof period !== 'number' || !Number.isInteger(period) || period < 2 || period > 200) throw new Error('规则指标周期应为2至200。');
-  if ((periodIndicators as readonly string[]).includes(name) && only(value, ['indicator', 'period'])) return { indicator: name, period } as RuleOperand;
-  if ((bandIndicators as readonly string[]).includes(name) && only(value, ['indicator', 'period', 'multiplier']) && typeof value.multiplier === 'number' && Number.isFinite(value.multiplier) && value.multiplier >= .1 && value.multiplier <= 5) return { indicator: name, period, multiplier: value.multiplier } as RuleOperand;
+  if ((periodIndicators as readonly string[]).includes(name) && only(value, ['indicator', 'period', 'factor'])) return { indicator: name, period, ...scaled } as RuleOperand;
+  if ((bandIndicators as readonly string[]).includes(name) && only(value, ['indicator', 'period', 'multiplier', 'factor']) && typeof value.multiplier === 'number' && Number.isFinite(value.multiplier) && value.multiplier >= .1 && value.multiplier <= 5) return { indicator: name, period, multiplier: value.multiplier, ...scaled } as RuleOperand;
   throw new Error('策略规则含不支持的指标或字段。');
 }
 export function parseStrategyRules(value: unknown): CustomStrategyRules {
@@ -81,6 +84,7 @@ export function customStrategySignals(data: HistoryPoint[], rules: CustomStrateg
         case 'ema': values = ema(closes, p); break;
         case 'rsi': values = rsiSeries(closes, p); break;
         case 'roc': values = rocSeries(closes, p); break;
+        case 'momentum': values = closes.map((close, i) => i >= p ? close - closes[i - p] : null); break;
         case 'atr_pct': values = atrSeries(data, p).map((v, i) => v === null ? null : v / closes[i] * 100); break;
         case 'cci': values = cciSeries(data, p); break;
         case 'williams': values = rangePosition(data, p).map(v => v === null ? null : v - 100); break;
@@ -98,6 +102,7 @@ export function customStrategySignals(data: HistoryPoint[], rules: CustomStrateg
         }
       }
     }
+    if ('indicator' in operand && operand.factor !== undefined) values = values.map(value => value === null ? null : value * operand.factor!);
     cache.set(key, values); return values;
   };
   const evaluate = (condition: RuleCondition, i: number) => {
