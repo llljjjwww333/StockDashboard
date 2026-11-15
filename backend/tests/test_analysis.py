@@ -75,6 +75,22 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(opener.open.call_count, 2)
         self.assertNotIn("response_format", json.loads(opener.open.call_args.args[0].data))
 
+    @patch.dict(os.environ, {"AI_ALLOW_LOCAL_PROVIDER": "1"})
+    def test_connection_test_accepts_reasoning_model_that_used_its_small_output_budget(self):
+        opener = unittest.mock.Mock()
+        opener.open.return_value = io.BytesIO(json.dumps({'choices': [{'message': {'content': None}, 'finish_reason': 'length'}]}).encode())
+        with patch('urllib.request.build_opener', return_value=opener):
+            self.assertEqual(request_model(config(), 'test', {}, test=True), {'ok': True, 'model': 'test-model'})
+
+    @patch.dict(os.environ, {"AI_ALLOW_LOCAL_PROVIDER": "1"})
+    def test_explicit_provider_unavailability_retries_once_and_auth_errors_do_not_retry(self):
+        opener = unittest.mock.Mock()
+        opener.open.side_effect = [urllib.error.HTTPError('https://provider.example', 503, 'busy', {}, io.BytesIO(b'busy')),
+            io.BytesIO(json.dumps({'choices': [{'message': {'content': '{"summary":"ok"}'}}]}).encode())]
+        with patch('urllib.request.build_opener', return_value=opener), patch('app.services.analysis_service.time.sleep'):
+            self.assertEqual(request_model(config(), 'test', {})['summary'], 'ok')
+        self.assertEqual(opener.open.call_count, 2)
+
 
 class EvidenceTests(unittest.TestCase):
     def test_indicators_and_candidates_are_anchored_to_actual_bars(self):

@@ -34,8 +34,9 @@ class CryptoNewsTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_source_refresh_merges_duplicates_and_preserves_chinese_metadata(self):
         calls=[]
+        stamp=datetime.now(timezone.utc).strftime('%a, %d %b %Y %H:%M:%S %z')
         def fetch(url):
-            calls.append(url);return rss('相同的BTC新闻','https://example.com/same')
+            calls.append(url);return rss('相同的BTC新闻','https://example.com/same',date=stamp)
         service=CryptoNews(fetch)
         a,b=await asyncio.gather(service.get(1),service.get(200))
         self.assertEqual(len(calls),len(FEEDS)); self.assertEqual(len(a.items),1); self.assertEqual(len(b.items),1)

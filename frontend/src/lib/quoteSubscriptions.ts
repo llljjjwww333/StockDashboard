@@ -3,8 +3,8 @@ import type { WatchlistStock } from '../store/stockStore';
 
 const QUOTE_LIMIT = 100;
 
-export function streamQuoteTickers(watchlist: WatchlistStock[], activeTicker: string | null) {
-  const tickers = [activeTicker, ...watchlist.map(stock => stock.ticker)].filter(isInstrumentTicker);
+export function streamQuoteTickers(watchlist: WatchlistStock[], activeTicker: string | null, visibleTickers: string[] = []) {
+  const tickers = [activeTicker, ...watchlist.map(stock => stock.ticker), ...visibleTickers].filter(isInstrumentTicker);
   return new Set([...new Set(tickers)].slice(0, QUOTE_LIMIT));
 }
 

@@ -5,6 +5,7 @@ import ipaddress
 import json
 import os
 import socket
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -46,36 +47,56 @@ def request_model(settings: ProviderConfig, system: str, content: dict, test=Fal
     headers = {"Content-Type": "application/json", "Accept": "application/json", "User-Agent": "ZPBOARD/2"}
     if settings.protocol == "anthropic":
         headers.update({"x-api-key": settings.api_key, "anthropic-version": "2023-06-01"})
-        body = {"model": settings.model, "max_tokens": 32 if test else 3000, "system": system,
+        body = {"model": settings.model, "max_tokens": 32 if test else 6000, "system": system,
                 "messages": [{"role": "user", "content": json.dumps(content, ensure_ascii=False)}]}
     else:
         if settings.api_key:
             headers["Authorization"] = "Bearer " + settings.api_key
-        body = {"model": settings.model, "max_tokens": 32 if test else 3000,
+        body = {"model": settings.model, "max_tokens": 32 if test else 6000,
                 "messages": [{"role": "system", "content": system},
                              {"role": "user", "content": json.dumps(content, ensure_ascii=False)}]}
         if not test:
             body["response_format"] = {"type": "json_object"}
     opener = urllib.request.build_opener(NoRedirect())
-    for attempt in range(3):
+    deadline = time.monotonic() + 140
+    transient_retries = 0
+    for attempt in range(5):
         request = urllib.request.Request(endpoint, data=json.dumps(body, ensure_ascii=False).encode(), headers=headers, method="POST")
         try:
-            with opener.open(request, timeout=55) as response:
+            with opener.open(request, timeout=max(1, min(120, deadline - time.monotonic()))) as response:
                 payload = json.loads(response.read(2_000_000))
+            if not isinstance(payload, dict):
+                raise ValueError()
             break
         except urllib.error.HTTPError as exc:
             error = exc.read(16000).decode(errors="replace")
-            if exc.code == 400 and attempt < 2:
+            if exc.code == 400 and attempt < 4:
                 if "response_format" in error and "response_format" in body:
                     body.pop("response_format")
                     continue
                 if "max_completion_tokens" in error and "max_tokens" in body:
                     body["max_completion_tokens"] = body.pop("max_tokens")
                     continue
+            if exc.code in {502, 503, 504, 529} and transient_retries < 1 and time.monotonic() < deadline - 10:
+                transient_retries += 1
+                time.sleep(1)
+                continue
             messages = {401: "API Key 无效", 403: "接口拒绝访问", 404: "接口或模型不存在", 429: "接口额度不足或请求过快"}
             raise ProviderError(messages.get(exc.code, f"模型接口返回 {exc.code}")) from None
-        except (OSError, ValueError) as exc:
-            raise ProviderError("模型连接失败或响应无效") from None
+        except (TimeoutError, socket.timeout):
+            raise ProviderError('模型响应超时，请重试') from None
+        except OSError:
+            raise ProviderError('无法连接模型接口，请检查接口地址或服务状态') from None
+        except ValueError:
+            raise ProviderError('模型接口返回了无效数据') from None
+    else:
+        raise ProviderError('模型接口参数不兼容')
+    if test:
+        # Reasoning models can consume the tiny test budget before emitting text.
+        if (settings.protocol == 'anthropic' and isinstance(payload.get('content'), list)) or (
+                settings.protocol == 'chat' and isinstance(payload.get('choices'), list) and payload['choices']):
+            return {'ok': True, 'model': settings.model}
+        raise ProviderError('接口响应格式与所选协议不一致')
     if settings.protocol == "anthropic":
         text = "".join(block.get("text", "") for block in payload.get("content", []) if block.get("type") == "text")
     else:
@@ -85,8 +106,6 @@ def request_model(settings: ProviderConfig, system: str, content: dict, test=Fal
             text = "".join(block.get("text", "") for block in text if isinstance(block, dict))
     if not isinstance(text, str) or not text.strip():
         raise ProviderError("模型未返回分析内容")
-    if test:
-        return {"ok": True, "model": settings.model}
     try:
         start = text.index("{")
         result, _ = json.JSONDecoder().raw_decode(text[start:])
@@ -311,7 +330,7 @@ async def analyze_market(request: AnalysisRequest, service) -> MarketAnalysis:
             "When price_type is snapshot, bars contain minute price observations, not OHLC candles. Do not infer intraminute candle shapes."
         )
     try:
-        raw = await asyncio.wait_for(asyncio.to_thread(request_model, request.settings, system, evidence), timeout=65)
+        raw = await asyncio.wait_for(asyncio.to_thread(request_model, request.settings, system, evidence), timeout=150)
     except asyncio.TimeoutError:
         raise ProviderError("模型响应超时") from None
     normalized = validate_result(raw, candidates, request.scope, request.language)

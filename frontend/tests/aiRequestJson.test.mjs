@@ -27,3 +27,35 @@ test('Safari syntax errors are normalized and a valid JSON success is returned i
   mocked.mock.mockImplementation(async () => new Response(JSON.stringify({ proposal: { name: 'valid' } })));
   assert.deepEqual(await requestAiJson('https://fixture.invalid', {}, new AbortController().signal), { proposal: { name: 'valid' } });
 });
+
+test('lost job submission response retries the same request ID and never changes credentials', async t => {
+  const submissions = [];
+  t.mock.method(globalThis, 'fetch', async (_url, options) => {
+    const body = JSON.parse(options.body); submissions.push(body);
+    if (submissions.length === 1) throw new TypeError('network reset');
+    return Response.json({ id: body.id, state: 'completed', result: { ok: true } });
+  });
+  const result = await requestAiJson('https://fixture.invalid/api/v1/ai/providers/test', { settings: { api_key: 'fixture-only' } }, new AbortController().signal);
+  assert.deepEqual(result, { ok: true });
+  assert.equal(submissions.length, 2);
+  assert.deepEqual(submissions[0], submissions[1]);
+});
+
+test('polling resumes after a temporary gateway outage without reposting the model request', async t => {
+  let id, posts = 0, polls = 0;
+  t.mock.method(globalThis, 'fetch', async (_url, options) => {
+    if (options.method === 'POST') { id = JSON.parse(options.body).id; posts++; return Response.json({ id, state: 'running' }); }
+    polls++;
+    if (polls === 1) return new Response('<html>gateway</html>', { status: 503 });
+    return Response.json({ id, state: 'completed', result: { summary: 'fixture' } });
+  });
+  assert.deepEqual(await requestAiJson('https://fixture.invalid/api/v1/ai/analyze', {}, new AbortController().signal), { summary: 'fixture' });
+  assert.equal(posts, 1); assert.equal(polls, 2);
+});
+
+test('provider authentication errors are shown once without automatic generation retries', async t => {
+  const calls = t.mock.method(globalThis, 'fetch', async (_url, options) => Response.json({ id: JSON.parse(options.body).id,
+    state: 'failed', detail: 'API Key 无效' }));
+  await assert.rejects(requestAiJson('https://fixture.invalid/api/v1/ai/providers/test', {}, new AbortController().signal), /API Key 无效/);
+  assert.equal(calls.mock.callCount(), 1);
+});

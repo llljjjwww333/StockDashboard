@@ -36,8 +36,15 @@ const PAD_TOP = 14;
 const EMPTY_HISTORY: HistoryPoint[] = [];
 
 const ProfessionalChart = lazy(() => import('./ProfessionalChart').then(module => ({ default: module.ProfessionalChart })));
+export function ChartLoading({ mode = 'line', immersive = false }: Pick<MarketChartProps, 'mode' | 'immersive'>) {
+  const panels = useIndicators(state => state.panels);
+  const height = mode === 'candles' ? 532 + panels.length * 116 : 456 + panels.filter(key => key !== 'volume').length * 180;
+  return <div className="loading-block chart-loading" style={{ minHeight: immersive ? `max(${height}px, calc(100dvh - 200px))` : height }}>
+    <i /><span>{t('加载中')}</span>
+  </div>;
+}
 export const MarketChart = memo(function ChartRouter(props: MarketChartProps) {
-  return props.mode === 'candles' ? <ChartModuleBoundary><Suspense fallback={<div className="loading-block"><i /><span>{t('加载中')}</span></div>}><ProfessionalChart {...props} /></Suspense></ChartModuleBoundary> : <SvgMarketChart {...props} />;
+  return props.mode === 'candles' ? <ChartModuleBoundary><Suspense fallback={<ChartLoading {...props} />}><ProfessionalChart {...props} /></Suspense></ChartModuleBoundary> : <SvgMarketChart {...props} />;
 });
 
 const SvgMarketChart = memo(function MarketChart({ data, ticker, period, interval = '1d', warmup = EMPTY_HISTORY, annotations = [], trendlines = [], immersive = false, selectedAnnotation, onSelectAnnotation, referencePrice, adjustment, source }: MarketChartProps) {

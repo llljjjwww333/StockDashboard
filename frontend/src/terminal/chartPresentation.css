@@ -75,7 +75,21 @@
 .is-immersive .overview .hero-quote > div { margin-top: 4px; }
 .is-immersive .overview .overview-layout { grid-template-columns: minmax(0, 1fr); margin-top: 9px; }
 .is-immersive .chart-card .chart-header { min-height: 48px; padding-block: 7px; }
-.chart-card .chart-wrap { min-height: 0; padding: 10px 14px 0; }
+.chart-card .chart-wrap { min-height: 0; padding: 10px 14px 0; position: relative; }
+.chart-notices { position: absolute; inset: 8px 14px auto; z-index: 8; pointer-events: none; }
+.chart-notices > * { pointer-events: auto; box-shadow: 0 4px 18px #0004; }
+.chart-notices .error-banner { background: var(--ink); }
+.chart-cache-state { min-width: 24px; }
+.overview { overflow-anchor: none; }
+.overview .hero-quote, .chart-readout, .book-row { font-variant-numeric: tabular-nums; }
+.order-book header { min-height: 42px; align-content: start; }
+.book-row { height: 27px; }
+.book-row strong, .book-row small, .chart-readout dl div { white-space: nowrap; }
+.book-row strong, .book-row small { overflow: hidden; text-overflow: ellipsis; }
+.markets-page { overflow-anchor: none; }
+.markets-page .market-meta { min-height: 20px; }
+.markets-page { position: relative; }
+.markets-page > .resource-error { position: absolute; top: 56px; inset-inline: 0; z-index: 5; background: var(--ink); }
 .chart-card .market-chart { min-height: 0; }
 .chart-card .chart-readout { min-height: 32px; padding: 0 4px; gap: 12px; flex-wrap: wrap; }
 .chart-card .chart-readout > div { gap: 4px 10px; flex-wrap: wrap; }

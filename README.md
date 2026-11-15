@@ -304,13 +304,16 @@ QUOTE_REFRESH_SECONDS=2
 ### REST Endpoints
 
 - `GET /health`：进程健康检查（不代表上游数据正常）
-- `GET /api/v1/market/quotes?tickers=AAPL,NVDA,600519`：共享批量报价，返回可用报价和不可用代码
-- `GET /api/v1/stocks/search?query=AAPL&market=US`：搜索股票
+- `GET /api/v1/market/quotes?tickers=BTCUSDT,ETHUSDT`：共享批量报价，返回可用报价和不可用代码
+- `GET /api/v1/stocks/search?query=BTC&market=CRYPTO`：搜索USDT现货交易对
 - `GET /api/v1/stocks/{ticker}/quote`：获取最新报价
 - `GET /api/v1/stocks/{ticker}/history?period=1mo&interval=1d`：获取历史行情
 - `GET /api/v1/stocks/{ticker}/recommendations`：获取相关股票推荐
-- `GET /api/v1/market/hotspots?market=US`：获取市场热点
-- `GET /api/v1/news?market=ALL&limit=200`：获取财经新闻
+- `GET /api/v1/market/hotspots?market=CRYPTO`：获取市场热点
+- `GET /api/v1/news?market=CRYPTO&limit=200`：获取虚拟币新闻
+- `POST /api/v1/ai/jobs`：提交AI后台任务；客户端请求ID相同且参数相同会复用任务
+- `GET /api/v1/ai/jobs/{id}`：读取任务状态和结果
+- `DELETE /api/v1/ai/jobs/{id}`：取消等待中的任务
 - `POST /api/v1/ai/providers/test`：测试配置的模型接口
 - `POST /api/v1/ai/analyze`：获取当前新闻 / 行情上下文，分析并返回结构化图表标注
 - `POST /api/v1/news/ai-insights`：旧版新闻 AI 接口
@@ -319,6 +322,12 @@ QUOTE_REFRESH_SECONDS=2
 ### WebSocket
 
 - `WS /ws/stock-updates`
+
+后台共用一个币安原生市场推送连接。自选及可见市场交易对订阅24h ticker；当前详情额外订阅aggTrade、depth20@100ms与所选周期kline。网页合并100ms内的价格及盘口消息，K线使用交易所原始OHLCV。断开上游推送时回退REST，恢复后自动切回。
+
+客户端发送 `{"type":"detail","data":{"ticker":"BTCUSDT","interval":"1m"}}` 选择当前详情，ticker设为null停止详情推送。返回类型包括update、depth和candle；先subscribe交易对，再发送detail。
+
+AI界面使用后台任务接口，单次模型调用不占用持续的浏览器HTTP连接。提交重试沿用同一UUID，查询失败后继续读取原任务；结果在单个API进程内保留15分钟。模型调用预算140秒，分析调用上限150秒，后台任务180秒，浏览器含连接恢复总预算270秒。密钥仅用于执行请求，任务完成后保存结果和请求HMAC。
 
 客户端订阅消息示例：
 

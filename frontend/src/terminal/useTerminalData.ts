@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { buildApiUrl } from '../lib/api';
 import { getLocale } from '../lib/i18n';
 import { useOnlineStatus } from '../lib/useOnlineStatus';
+import { useCryptoStreamStore } from '../store/cryptoStreamStore';
 import type { NewsScope } from './newsView';
 import { resourceCache, stockMembershipCache, type ResourceCache } from '../lib/resourceCache';
 import { remainingFreshTime } from '../lib/resourceFreshness';
@@ -215,7 +216,17 @@ export function useStrategyHistory(ticker: string | null, period: '3mo' | '1y', 
 }
 
 export function useCryptoDepth(ticker: string, enabled: boolean) {
-  return useResource<NonNullable<Quote['order_book']>>(enabled ? `/stocks/${ticker}/depth` : null, 2000, '盘口暂不可用', enabled);
+  const stream = useCryptoStreamStore(state => state.depth[ticker]);
+  const [clock, setClock] = useState(Date.now);
+  useEffect(() => {
+    if (!enabled) return;
+    const timer = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [enabled]);
+  const healthy = Boolean(stream && clock - Date.parse(stream.received_at) < 5000);
+  const fallback = useResource<NonNullable<Quote['order_book']>>(enabled ? `/stocks/${ticker}/depth` : null,
+    2000, '盘口暂不可用', enabled && !healthy);
+  return { ...fallback, data: stream && (healthy || !fallback.data) ? stream.book : fallback.data };
 }
 
 export function useMarketOverview(market: MarketType, enabled = true) {

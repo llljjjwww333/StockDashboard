@@ -6,6 +6,7 @@ import type { AiProfile } from './types';
 import { useAppearance } from '../store/appearanceStore';
 import { WatchlistBackup } from './WatchlistBackup';
 import { UsageHelp } from './UsageHelp';
+import { requestAiJson } from './requestJson';
 
 const presets = {
   custom: { name: '自定义接口', baseUrl: '', protocol: 'chat' as const },
@@ -107,13 +108,8 @@ export function SettingsDialog({ onClose, initialSection = 'ai' }: { onClose: ()
     setTesting(true);
     setMessage('');
     try {
-      const response = await fetch(buildApiUrl('/ai/providers/test'), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ settings }),
-        signal: AbortSignal.any([controller.signal, AbortSignal.timeout(65000)]),
-      });
-      const result = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(typeof result?.detail === 'string' ? result.detail : '连接失败');
+      const result = await requestAiJson(buildApiUrl('/ai/providers/test'), { settings }, controller.signal,
+        270000, text => { if (testController.current === controller) setMessage(text); }) as { ok?: boolean; model?: string };
       if (result?.ok !== true || result.model !== settings.model) throw new Error('连接失败');
       if (testController.current === controller) setMessage('连接成功');
     } catch (error) {
@@ -206,7 +202,6 @@ export function SettingsDialog({ onClose, initialSection = 'ai' }: { onClose: ()
         <label>API Key<div className="api-key-field"><input aria-label="API Key" type={showKey ? 'text' : 'password'} value={draft.apiKey} maxLength={4096} onChange={e => change({ apiKey: e.target.value })} autoComplete="off" autoCapitalize="none" spellCheck={false} /><button type="button" onClick={() => setShowKey(!showKey)}>{showKey ? t("隐藏") : t("显示")}</button></div></label>
         <label className="remember-key"><input type="checkbox" checked={draft.rememberKey} onChange={e => change({ rememberKey: e.target.checked })} />{t("在此设备记住密钥")}</label>
         {message && <p className="settings-status" role="status">{t(message)}</p>}
-        {testing && <p className="settings-status" role="status">{t('正在测试连接…')}</p>}
         <footer><button type="button" aria-busy={testing} onClick={testing ? cancelTest : test}>{testing ? t('取消测试') : t("测试连接")}</button><button className="ai-run" type="submit">{t("保存并使用")}</button>{profiles.some(p => p.id === draft.id) && <button type="button" className="delete-provider" onClick={() => { remove(draft.id); closeEditor(); }}>{t("删除")}</button>}</footer>
       </form>}
       </section>

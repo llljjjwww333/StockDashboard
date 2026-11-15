@@ -9,6 +9,10 @@ from app.schemas.strategy import GeneratedStrategy, StrategyGenerationRequest
 from app.services.strategy_generation import generate_strategy
 from app.services.trading_review import PortfolioReviewRequest, review_portfolio, PortfolioDesignRequest, design_portfolio
 import asyncio
+from uuid import UUID
+from pydantic import BaseModel, Field, ValidationError
+from fastapi.responses import JSONResponse
+from app.services.ai_jobs import ai_jobs
 from typing import Literal
 from app.schemas.stock import (
     AiContextAnalysisRequest,
@@ -56,7 +60,7 @@ async def review_paper_strategy(payload: PortfolioReviewRequest):
 async def test_ai_provider(payload: ProviderTestRequest):
     try:
         return await asyncio.wait_for(asyncio.to_thread(request_model, payload.settings,
-            "Reply with OK.", {"message": "Connection test"}, True), timeout=60)
+            "Reply with OK.", {"message": "Connection test"}, True), timeout=150)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
     except (ProviderError, asyncio.TimeoutError) as exc:
@@ -82,6 +86,45 @@ async def generate_ai_strategy(payload: StrategyGenerationRequest):
         raise HTTPException(400, str(exc)) from None
     except ProviderError as exc:
         raise HTTPException(502, str(exc)) from None
+
+
+class AiJobRequest(BaseModel):
+    id: UUID
+    operation: Literal['analyze', 'providers/test', 'strategies/generate', 'portfolios/review', 'portfolios/design']
+    payload: dict = Field(max_length=40)
+
+
+@router.post('/ai/jobs')
+async def create_ai_job(request: AiJobRequest):
+    model, handler = {
+        'analyze': (AnalysisRequest, analyze_current_market),
+        'providers/test': (ProviderTestRequest, test_ai_provider),
+        'strategies/generate': (StrategyGenerationRequest, generate_ai_strategy),
+        'portfolios/review': (PortfolioReviewRequest, review_paper_strategy),
+        'portfolios/design': (PortfolioDesignRequest, design_portfolio_strategy),
+    }[request.operation]
+    try:
+        payload = model.model_validate(request.payload)
+    except ValidationError:
+        # ValidationError.input can contain API keys; never echo it to the browser.
+        raise HTTPException(422, 'AI请求参数不完整或格式不正确') from None
+    result = ai_jobs.submit(str(request.id), request.operation, payload, handler)
+    return JSONResponse(result, status_code=202, headers={'Cache-Control': 'no-store'})
+
+
+@router.get('/ai/jobs/{identifier}')
+async def read_ai_job(identifier: UUID):
+    return JSONResponse(ai_jobs.snapshot(str(identifier)), headers={'Cache-Control': 'no-store'})
+
+
+@router.delete('/ai/jobs/{identifier}')
+async def cancel_ai_job(identifier: UUID):
+    return ai_jobs.cancel(str(identifier))
+
+
+@router.on_event('shutdown')
+async def close_ai_jobs():
+    await ai_jobs.close()
 
 
 @router.get("/stocks/{ticker}/history", response_model=StockHistoryResponse)

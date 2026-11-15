@@ -25,7 +25,7 @@ export function OrderBook({ ticker, quote }: { ticker: string; quote?: StockQuot
       </>}
       <small>{crypto ? ticker.slice(0,-4) : t('手')}</small>
     </div></header>
-    {volumes.length ? <>
+    <>
       <div className="book-rows">{['bid', 'ask'].map(side => <div key={side} className={`book-side ${side}`}>{Array.from({length:crypto?10:5},(_,i)=>i+1).map(level => {
         const row = (side === 'ask' ? asks : bids).find(item => item.level === level);
         return <div className="book-row" key={level} data-level={level}>
@@ -35,6 +35,6 @@ export function OrderBook({ ticker, quote }: { ticker: string; quote?: StockQuot
         </div>;
       })}</div>)}</div>
       <footer><span>{t('价差')} <b>{spread !== null && spread >= 0 ? spread.toFixed(digits) : '--'}</b></span><span>{t('委买占比')} <b>{(bidTotal / Math.max(bidTotal + askTotal, 1) * 100).toFixed(1)}%</b></span></footer>
-    </> : <p className="book-empty">{t('暂无盘口')}</p>}
+    </>
   </section>;
 }

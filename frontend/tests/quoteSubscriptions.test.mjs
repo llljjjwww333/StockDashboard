@@ -26,3 +26,8 @@ test('a connected feed polls only its interrupted symbols alongside tickers beyo
   assert.deepEqual(pollQuoteBatches(watchlist.slice(0, 4), 'TEST0', true, new Set(['TEST1'])), ['TEST1']);
   assert.deepEqual(pollQuoteBatches(watchlist.slice(0, 4), 'TEST0', true, new Set()), []);
 });
+
+test('market rows share the watchlist socket and cannot displace active or saved subscriptions', () => {
+  assert.deepEqual([...streamQuoteTickers([{ ticker: 'BTCUSDT' }], 'ETHUSDT', ['BTCUSDT', 'SOLUSDT', 'INVALID!'])], ['ETHUSDT', 'BTCUSDT', 'SOLUSDT']);
+  assert.equal(streamQuoteTickers(watchlist, 'ACTIVE', ['EXTRA']).has('EXTRA'), false);
+});

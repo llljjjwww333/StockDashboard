@@ -1822,7 +1822,13 @@ class StockDataService:
             if len(tickers) > 100:
                 raise ValueError("Maximum 100 symbols")
             result = await crypto_market.quotes(crypto)
-            self.quote_cache.update({s: (time.time(), q) for s, q in result.items()})
+            for symbol, quote in result.items():
+                cached = self.quote_cache.get(symbol)
+                # A REST snapshot can finish after a newer native stream event.
+                if cached and cached[1].as_of and quote.as_of and datetime.fromisoformat(cached[1].as_of) > datetime.fromisoformat(quote.as_of):
+                    result[symbol] = cached[1]
+                else:
+                    self.quote_cache[symbol] = (time.time(), quote)
             others = [s for s in tickers if s.strip().upper() not in crypto]
             if others:
                 result.update(await self.get_quote_batch(others))

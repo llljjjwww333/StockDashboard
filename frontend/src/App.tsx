@@ -4,8 +4,10 @@ import { type CSSProperties, type PointerEvent, type ReactNode, memo, useCallbac
 import './App.css';
 import { stockWebSocketService } from './services/stockWebSocketService';
 import { type MarketType, type StockQuote, type WatchlistStock, useStockQuoteStore, useStockStore, useWatchlistStorage } from './store/stockStore';
-import { MarketChart } from './terminal/MarketChart';
+import { MarketChart, ChartLoading } from './terminal/MarketChart';
 import { liveDailyHistory } from './terminal/liveDailyHistory';
+import { mergeCryptoCandles } from './lib/cryptoStream';
+import { useCryptoStreamStore } from './store/cryptoStreamStore';
 import { OrderBook } from './terminal/OrderBook';
 import { ChinaMarkets } from './terminal/ChinaMarkets';
 import { StockTags } from './terminal/StockTags';
@@ -161,6 +163,18 @@ function App() {
   const instrument = useInstrumentData(selectedTickerSafe, period, interval, chartMode === 'candles', view === 'overview',
     connectionStatus === 'connected', storedQuote?.streamConfirmedAt);
   const marketState = useMarketOverview(market, view === 'markets' || view === 'overview');
+  const liveMarketData = useMemo(() => {
+    const data = marketState.data;
+    if (!data || data.market !== 'CRYPTO') return data;
+    const merge = <T extends { ticker: string }>(row: T): T => {
+      const live = quotes[row.ticker];
+      return live?.snapshot && !live.stale && Date.parse(live.asOf ?? '') >= Date.parse(data.updated_at)
+        ? { ...row, price: live.price, change_percent: live.changePercent, volume: live.volume,
+          amount: live.snapshot.amount, change: live.snapshot.change } : row;
+    };
+    return { ...data, indices: data.indices.map(merge), sectors: data.sectors?.map(merge),
+      active: data.active.map(merge), leaders: data.leaders.map(merge), laggards: data.laggards.map(merge) };
+  }, [marketState.data, quotes]);
   const newsState = useNewsFeed(view === 'overview' || view === 'news', view === 'news' ? newsView.scope ?? 'ALL' : 'ALL');
   const search = useStockSearch(searchComposing ? '' : searchQuery, market);
   const response = instrument.quoteState.data;
@@ -169,8 +183,11 @@ function App() {
   const httpQuote = useMemo(() => response ? toStoredQuote(response, quoteReceivedAt) : null, [response, quoteReceivedAt]);
   const liveQuote = httpQuote && httpQuote.snapshot !== storedQuote?.snapshot && !isOlderQuote(httpQuote, storedQuote)
     ? httpQuote : storedQuote;
-  const displayedHistory = useMemo(() => liveDailyHistory(selectedTickerSafe, instrument.historyMeta, liveQuote),
+  const streamCandles = useCryptoStreamStore(state => state.candles[`${selectedTickerSafe}:${interval}`]);
+  const baseHistory = useMemo(() => liveDailyHistory(selectedTickerSafe, instrument.historyMeta, liveQuote),
     [selectedTickerSafe, instrument.historyMeta, liveQuote]);
+  const displayedHistory = useMemo(() => mergeCryptoCandles(baseHistory, selectedTickerSafe, streamCandles),
+    [selectedTickerSafe, baseHistory, streamCandles]);
   const quote = liveQuote?.snapshot ?? null;
   const price = liveQuote?.price ?? 0;
   const changePercent = liveQuote?.changePercent ?? 0;
@@ -200,8 +217,15 @@ function App() {
   }, []);
 
   useEffect(() => {
-    stockWebSocketService.setActiveTicker(activeQuoteTicker);
-  }, [activeQuoteTicker]);
+    stockWebSocketService.setActiveTicker(activeQuoteTicker, interval);
+  }, [activeQuoteTicker, interval]);
+
+  useEffect(() => {
+    const data = marketState.data;
+    const tickers = data && (view === 'markets' || view === 'overview') ?
+      [...data.indices, ...(data.sectors ?? []), ...data.active, ...data.leaders, ...data.laggards].map(row => row.ticker) : [];
+    stockWebSocketService.setMarketTickers(tickers);
+  }, [marketState.data, view]);
 
   const previewTicker = previewStock?.ticker;
   useEffect(() => {
@@ -581,7 +605,7 @@ function App() {
               source={liveQuote?.source ?? quote?.source ?? null}
               asOf={liveQuote?.asOf ?? quote?.as_of ?? null}
               liveQuote={liveQuote}
-              marketData={marketState.data}
+              marketData={liveMarketData}
               marketLoading={marketState.loading}
               news={newsState.data?.items ?? []}
               newsLoading={newsState.loading}
@@ -600,7 +624,7 @@ function App() {
             <Markets
               market={market}
               setMarket={changeMarket}
-              data={marketState.data}
+              data={liveMarketData}
               loading={marketState.loading}
               error={marketState.error}
               onRetry={marketState.retry}
@@ -952,7 +976,7 @@ function Overview(props: OverviewProps) {
   const runChartAnalysis = () => analysis.run({
     scope: 'chart', ticker: stock.ticker, market: stock.market, period: props.period, interval: props.interval, chart_type: chartMode,
     chart_history: props.history.length >= 2 ? {
-      data: props.history, source: props.historyMeta?.source, price_type: props.historyMeta?.price_type,
+      data: props.history.slice(-2048), source: props.historyMeta?.source, price_type: props.historyMeta?.price_type,
       adjustment: props.historyMeta?.adjustment, stale: props.historyStale,
       indicators: analysisIndicatorValues(props.history, props.indicatorHistory,
         (!intraday || chartMode === 'candles') && props.historyMeta?.price_type !== 'snapshot'),
@@ -986,7 +1010,7 @@ function Overview(props: OverviewProps) {
           <header className="section-header chart-header">
             <div className="chart-heading">
               <h2>{t("走势")}</h2>
-              {props.historyStale && <small className="quote-tag">{t("缓存")}</small>}
+              <small className="quote-tag chart-cache-state" style={{ visibility: props.historyStale ? 'visible' : 'hidden' }}>{t("缓存")}</small>
               {trendlines.length > 0 && (
                 <div className="chart-trend-keys" role="group" aria-label={t("AI 趋势线")}>
                   {trendlines.map(line => (
@@ -1029,11 +1053,13 @@ function Overview(props: OverviewProps) {
               </div>
             </div>
           </header>
-          {analysis.error && <div className="error-banner" role="status">{t(analysis.error)}</div>}
-          <ResourceError error={props.historyError} loading={props.historyLoading} onRetry={props.historyRetry} label="重试图表" hasData={Boolean(chartData.length)} />
           <div className="chart-wrap">
+            <div className="chart-notices">
+              {analysis.error && <div className="error-banner" role="status">{t(analysis.error)}</div>}
+              <ResourceError error={props.historyError} loading={props.historyLoading} onRetry={props.historyRetry} label="重试图表" hasData={Boolean(chartData.length)} />
+            </div>
             {props.historyLoading && !chartData.length
-              ? <LoadingBlock label={t("加载中")} />
+              ? <ChartLoading mode={chartMode} immersive={props.immersive} />
               : <MarketChart key={`${stock.ticker}:${props.period}:${props.interval}:${chartMode}`} data={chartData} warmup={props.indicatorHistory} ticker={stock.ticker} period={props.period} mode={chartMode} interval={props.interval}
                   referencePrice={props.historyMeta?.reference_price} adjustment={props.historyMeta?.adjustment} source={props.historyMeta?.source}
                   immersive={props.immersive} annotations={chartAnnotations} trendlines={trendlines} selectedAnnotation={selectedAnnotation} onSelectAnnotation={selectAnnotation} />}

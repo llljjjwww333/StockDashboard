@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo
 from contextlib import suppress
 from app.services.runtime import stock_service
 from app.services.market_calendar import market_hours
+from app.services.crypto_stream import CryptoStream, INTERVALS
+from app.services.crypto_market import is_crypto
 
 router = APIRouter()
 
@@ -18,12 +20,14 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
         self.subscriptions: dict[str, list[WebSocket]] = {}  # ticker -> list of connections
+        self.details: dict[WebSocket, tuple[str, str]] = {}
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
 
     def disconnect(self, websocket: WebSocket):
+        self.details.pop(websocket, None)
         # Only remove if websocket is in the list
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
@@ -41,6 +45,8 @@ class ConnectionManager:
             self.subscriptions[ticker].append(websocket)
 
     async def unsubscribe(self, websocket: WebSocket, ticker: str):
+        if self.details.get(websocket, (None,))[0] == ticker:
+            self.details.pop(websocket, None)
         if ticker in self.subscriptions and websocket in self.subscriptions[ticker]:
             self.subscriptions[ticker].remove(websocket)
             if not self.subscriptions[ticker]:
@@ -53,12 +59,22 @@ class ConnectionManager:
         if ticker in self.subscriptions:
             for connection in list(self.subscriptions[ticker]):
                 try:
-                    await connection.send_text(message)
+                    await asyncio.wait_for(connection.send_text(message), timeout=1)
                 except Exception:
                     # Remove broken connection
                     self.disconnect(connection)
 
+    async def broadcast_detail(self, ticker, message):
+        encoded = json.dumps(message)
+        for connection, detail in list(self.details.items()):
+            if detail[0] == ticker and (message['type'] != 'candle' or message['data']['interval'] == detail[1]):
+                try:
+                    await asyncio.wait_for(connection.send_text(encoded), timeout=1)
+                except Exception:
+                    self.disconnect(connection)
+
 manager = ConnectionManager()
+crypto_stream = CryptoStream(manager, stock_service)
 
 @router.websocket("/stock-updates")
 async def websocket_endpoint(websocket: WebSocket):
@@ -91,6 +107,15 @@ async def websocket_endpoint(websocket: WebSocket):
                     await manager.unsubscribe(websocket, ticker)
                 elif message["type"] == "ping":
                     await manager.send_personal_message('{"type":"pong"}', websocket)
+                elif message['type'] == 'detail':
+                    ticker = message['data'].get('ticker')
+                    interval = message['data'].get('interval', '1m')
+                    if ticker is None:
+                        manager.details.pop(websocket, None)
+                    elif is_crypto(ticker) and interval in INTERVALS and websocket in manager.subscriptions.get(ticker, []):
+                        manager.details[websocket] = (ticker, interval)
+                    else:
+                        raise ValueError('Invalid detail subscription')
             except json.JSONDecodeError:
                 await manager.send_personal_message(
                     json.dumps({"type": "error", "data": "Invalid JSON format"}),
@@ -150,7 +175,7 @@ async def generate_stock_updates():
         current = set(tickers)
         last_refresh = {ticker: refreshed for ticker, refreshed in last_refresh.items() if ticker in current}
         started = time.monotonic()
-        requested = due_quotes(tickers, last_refresh, started)
+        requested = [ticker for ticker in due_quotes(tickers, last_refresh, started) if not crypto_stream.healthy(ticker)]
         if not requested:
             await asyncio.sleep(0.25)
             continue
@@ -173,17 +198,20 @@ async def generate_stock_updates():
 
 
 feed_task: asyncio.Task | None = None
+crypto_task: asyncio.Task | None = None
 
 
 @router.on_event("startup")
 async def startup_event():
-    global feed_task
+    global feed_task, crypto_task
     feed_task = asyncio.create_task(generate_stock_updates())
+    crypto_task = asyncio.create_task(crypto_stream.run())
 
 
 @router.on_event("shutdown")
 async def shutdown_event():
-    if feed_task:
-        feed_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await feed_task
+    for task in (feed_task, crypto_task):
+        if task:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
