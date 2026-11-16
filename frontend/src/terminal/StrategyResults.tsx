@@ -1,3 +1,4 @@
+import { formatTradingQuantity, formatTradingFee } from '../lib/tradingNumber';
 import { StrategyTradeLedger } from './StrategyTradeLedger';
 import { useEffect, useRef, useState } from 'react';
 import { t, useLanguage } from '../lib/i18n';
@@ -33,7 +34,7 @@ export function StrategyResults({ report }: { report: StrategyReport }) {
     ['年化波动', pct(r.volatility), s.config.sessionsPerYear===365?'日收益标准差 × √365':'日收益标准差 × √252'],
     ['夏普比率', r.sharpe?.toFixed(2) ?? '—', s.config.sessionsPerYear===365?'日均收益 / 标准差 × √365':'日均收益 / 标准差 × √252'],
     ['盈利因子', factor, '总盈利 / 总亏损绝对值'],
-    ['累计手续费', money(r.totalFees), '买卖成交费用合计'],
+    ['累计手续费', formatTradingFee(s.instrument.ticker,r.totalFees,language==='en'?'en-US':'zh-CN'), '买卖成交费用合计'],
     ['平均仓位', pct(r.averageExposure), '日收盘仓位均值'],
     ['平均持有日', r.averageHolding?.toFixed(1) ?? '—', '已平仓交易持有日均值'],
     ['期末资产', money(r.finalEquity), '现金 + 持仓市值'],
@@ -63,7 +64,7 @@ export function StrategyResults({ report }: { report: StrategyReport }) {
     {r.regimes && <details className="strategy-regime-report"><summary>{t('市场状态与策略切换')} · {r.regimes.filter((p, i) => !i || p.regime !== r.regimes![i - 1].regime).length} {t('阶段')}</summary><div className="strategy-regime-strip">{Object.entries(regimeNames).map(([key, name]) => <span key={key}>{t(name)} <b>{r.regimes!.filter(p => p.regime === key).length} {t('交易日')}</b></span>)}</div><div className="strategy-table"><table><thead><tr>{['开始日期', '结束日期', '市场状态', '执行策略'].map(x => <th key={x}>{t(x)}</th>)}</tr></thead><tbody>{r.regimes.map((p, i, all) => !i || p.regime !== all[i - 1].regime ? <tr key={p.date}><td>{day(p.date)}</td><td>{day(all.slice(i + 1).findIndex(n => n.regime !== p.regime) < 0 ? all.at(-1)!.date : all[i + all.slice(i + 1).findIndex(n => n.regime !== p.regime)].date)}</td><td>{t(regimeNames[p.regime])}</td><td>{t(p.method === 'cash' ? '持有现金' : strategyName(p.method))}</td></tr> : null)}</tbody></table></div></details>}
     <div className="strategy-stats">{[4, 5, 8, 9, 10, 11].map(metric)}</div>
     <div className="strategy-tabs" role="group" aria-label={t('报告明细')}>{([['closed', '交易分析'], ['fills', '成交明细'], ['monthly', '月度收益'], ['account', '账户']] as const).map(([id, label]) => <button type="button" key={id} aria-pressed={tab === id} onClick={() => setTab(id)}>{t(label)}{id === 'closed' ? ' (' + r.closed.length + ')' : id === 'fills' ? ' (' + r.trades.length + ')' : ''}</button>)}</div>
-    {tab === 'account' ? <div className="strategy-account"><span>{t('现金')} <b>{money(r.cash)}</b></span><span>{t('持仓数量')} <b>{money(r.shares)}</b></span><span>{t('未实现盈亏')} <b>{money(r.unrealizedPnl)}</b></span>{r.skippedEntries > 0 && <span>{t('跳过开仓')} <b>{r.skippedEntries}</b></span>}</div> : tab === 'monthly' ? <div className="strategy-table" tabIndex={0} role="region" aria-label={t('月度收益')}><table><thead><tr>{['月份', '策略收益', '买入持有', '收益差'].map(x => <th key={x}>{t(x)}</th>)}</tr></thead><tbody>{r.monthly.map(m => <tr key={m.month}><td>{m.month}</td><td>{pct(m.strategy)}</td><td>{pct(m.benchmark)}</td><td>{pct(m.strategy - m.benchmark)}</td></tr>)}</tbody></table></div>
+    {tab === 'account' ? <div className="strategy-account"><span>{t('现金')} <b>{money(r.cash)}</b></span><span>{t('持仓数量')} <b>{formatTradingQuantity(r.shares,language==='en'?'en-US':'zh-CN')}</b></span><span>{t('未实现盈亏')} <b>{money(r.unrealizedPnl)}</b></span>{r.skippedEntries > 0 && <span>{t('跳过开仓')} <b>{r.skippedEntries}</b></span>}</div> : tab === 'monthly' ? <div className="strategy-table" tabIndex={0} role="region" aria-label={t('月度收益')}><table><thead><tr>{['月份', '策略收益', '买入持有', '收益差'].map(x => <th key={x}>{t(x)}</th>)}</tr></thead><tbody>{r.monthly.map(m => <tr key={m.month}><td>{m.month}</td><td>{pct(m.strategy)}</td><td>{pct(m.benchmark)}</td><td>{pct(m.strategy - m.benchmark)}</td></tr>)}</tbody></table></div>
     : tab === 'closed' ? <StrategyTradeLedger key="closed" ticker={s.instrument.ticker} locale={language==='en'?'en-US':'zh-CN'} closed={r.closed}/>
     : <StrategyTradeLedger key="trades" ticker={s.instrument.ticker} locale={language==='en'?'en-US':'zh-CN'} trades={r.trades}/>}
   </>;

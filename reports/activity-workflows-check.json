@@ -1,0 +1,16 @@
+{
+  "url": "http://127.0.0.1:5176",
+  "fixtures": true,
+  "ledgerScrollKeepsControlsBelowHeader": true,
+  "ordersAndDecisionsPaginated": true,
+  "combinedFiltersWork": true,
+  "csvIncludesAllFilteredPages": true,
+  "accountSwitchResetsFilters": true,
+  "snapshotDoesNotTouchEditor": true,
+  "copyPreservesBoundRulesAndNewerEditor": true,
+  "ruleAndAiSchedulesSeparated": true,
+  "tinyManualPriceAndAmountVisible": true,
+  "backtestFractionalHoldingVisible": true,
+  "noAiCalls": true,
+  "errors": []
+}

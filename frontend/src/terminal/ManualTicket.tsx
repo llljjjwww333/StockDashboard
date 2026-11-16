@@ -1,3 +1,5 @@
+import { formatTradingPrice, formatTradingQuantity, formatTradingFee } from '../lib/tradingNumber';
+import { getLocale } from '../lib/i18n';
 import { useEffect, useRef, useState } from 'react';
 import type { WatchlistStock } from '../store/stockStore';
 import { buildApiUrl } from '../lib/api';
@@ -8,7 +10,6 @@ import { manualOrderDetails } from './manualOrder';
 import type { Quote } from './types';
 
 export type ManualOrderSelection={ticker:string;side:'buy'|'sell'};
-const money=(n:number)=>n.toLocaleString(undefined,{maximumFractionDigits:2});
 export function ManualTicket({portfolio:p,watchlist,disabled,initialOrder,onOrders}:{portfolio:Portfolio;watchlist:WatchlistStock[];disabled:boolean;initialOrder?:ManualOrderSelection;onOrders:()=>void}){
  const [selectedTicker,setTicker]=useState(initialOrder?.ticker??portfolioUniverse(p,watchlist)[0]?.ticker??''),[query,setQuery]=useState(''),[side,setSide]=useState<'buy'|'sell'>(initialOrder?.side??'buy');
  const [quantity,setQuantity]=useState(initialOrder?.side==='sell'?portfolioSellable(p,initialOrder.ticker,new Date())||1:p.market==='CRYPTO'?.001:p.market==='CN'?100:1),[receipt,setReceipt]=useState(''),[failure,setFailure]=useState('');
@@ -42,12 +43,12 @@ export function ManualTicket({portfolio:p,watchlist,disabled,initialOrder,onOrde
    if(updatePortfolio({...current,poolMode:'custom',pool:[...portfolioUniverse(current,watchlist).filter(n=>n.ticker!==s.ticker),{...s,market:p.market}]})){setTicker(s.ticker);setQuery('');clear();}
   }}>{s.ticker} · {s.name}</button>)}</div>}
 </details>
-  <div className="manual-quote"><strong>{quote?money(quote.price):'—'}</strong><small>{quote?.source}</small></div>
+  <div className="manual-quote"><strong>{quote?formatTradingPrice(ticker,quote.price,getLocale()):'—'}</strong><small>{quote?.source}</small></div>
   <div className="manual-side"><button aria-pressed={side==='buy'} onClick={()=>{setSide('buy');clear();}}>买入</button><button aria-pressed={side==='sell'} onClick={()=>{setSide('sell');clear();}}>卖出</button></div>
-  <div className="manual-quantity-heading"><label htmlFor="manual-quantity">数量</label><button className="manual-max" disabled={disabled||details.maximum<=0} onClick={()=>{setQuantity(details.maximum);clear();}}>{side==='buy'?'可买':'可卖'} {details.maximum} 币</button></div>
+  <div className="manual-quantity-heading"><label htmlFor="manual-quantity">数量</label><button className="manual-max" disabled={disabled||details.maximum<=0} onClick={()=>{setQuantity(details.maximum);clear();}}>{side==='buy'?'可买':'可卖'} {formatTradingQuantity(details.maximum,getLocale())} 币</button></div>
   <div className="manual-order-size"><input id="manual-quantity" ref={quantityInput} aria-label="手动委托数量" aria-describedby="manual-quantity-status" aria-invalid={!!details.error} type="number" min={p.market==='CRYPTO'?1e-8:1} step={side==='buy'||p.market==='CRYPTO'?details.unit:1} value={Number.isFinite(quantity)?quantity:''} onChange={e=>{setQuantity(e.target.valueAsNumber);clear();}}/>
   <div className="manual-sizes">{[.25,.5,1].map(f=><button key={f} disabled={disabled||details.maximum<=0} onClick={()=>{setQuantity(side==='buy'||p.market==='CRYPTO'?Number((Math.floor(details.maximum*f/details.unit+1e-9)*details.unit).toFixed(8)):Math.floor(details.maximum*f));clear();}}>{f===1?'全部':f*100+'%'}</button>)}</div></div>
-  <div className="manual-amount"><span>{side==='buy'?'预计支出':'预计收入'}</span><b>{details.amount===null?'—':money(details.amount)}</b></div>
+  <div className="manual-amount"><span>{side==='buy'?'预计支出':'预计收入'}</span><b>{details.amount===null?'—':formatTradingFee(ticker,details.amount,getLocale())}</b></div>
   <p id="manual-quantity-status" className="manual-feedback" role="status">{receipt?'':failure||details.error}</p>
   <button className="primary" disabled={disabled||!!details.error} onClick={trade}>提交{side==='buy'?'买入':'卖出'}</button>
   {receipt&&<div className="manual-receipt" role="status"><span>{receipt}</span><button onClick={onOrders}>查看成交</button></div>}

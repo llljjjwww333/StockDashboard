@@ -353,3 +353,22 @@
 .account-removal p { margin: 0 0 12px; font-size: 13px; }
 .account-removal > div { display: flex; gap: 8px; }
 .account-removal button:first-child { color: var(--red); }
+
+.portfolio-activity-filters,.portfolio-activity-pages { display:flex; align-items:center; gap:10px; padding:12px 14px; font-size:12px; color:var(--muted); border-bottom:1px solid var(--line); }
+.portfolio-activity-filters input { flex:1; max-width:360px; }
+.portfolio-activity-filters > span { margin-left:auto; font-variant-numeric:tabular-nums; }
+.portfolio-activity-pages > span:first-child { margin-right:auto; }
+.portfolio-activity-pages label { display:flex; align-items:center; gap:8px; }
+.portfolio-activity-pages select { padding:4px 8px; }
+.portfolio-activity > p { margin:10px 14px; font-size:12px; }
+.binding-snapshot > header { display:grid; gap:6px; }.binding-snapshot > header span { color:var(--muted); font-size:12px; }
+.binding-snapshot > dl { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; margin:20px 0; }
+.binding-snapshot dt { color:var(--muted); font-size:11px; }.binding-snapshot dd { margin:5px 0 0; font-size:13px; }
+.binding-snapshot details { margin:14px 0; }.binding-snapshot summary { cursor:pointer; font-size:12px; }
+.binding-snapshot details p { white-space:pre-wrap; max-height:200px; overflow:auto; line-height:1.7; }
+.binding-snapshot > .strategy-definition-details { margin-bottom:16px; }
+
+.portfolio-ledger { scroll-margin-top:88px; }
+.portfolio-activity-pages { position:sticky; top:72px; z-index:3; background:var(--ink); }
+.strategy-ai-settings summary { cursor:pointer; font-size:12px; color:var(--muted); }
+.strategy-ai-settings > label { margin-top:12px; }
