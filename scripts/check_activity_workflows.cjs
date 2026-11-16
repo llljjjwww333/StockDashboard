@@ -75,6 +75,7 @@ const base=process.env.PREVIEW_URL||'http://127.0.0.1:5176';
   assert.equal(await page.getByLabel('策略复核间隔',{exact:true}).isVisible(),false);await page.getByText('AI动态模式设置',{exact:true}).click();assert.equal(await page.getByLabel('策略复核间隔',{exact:true}).isVisible(),true);
   const tiny=executePortfolioOrder(createPortfolio('精度核对',10000,'CRYPTO'),'SHIBUSDT','buy',.001,quote('SHIBUSDT'),'fixture','SHIB');tiny.poolMode='custom';tiny.pool=[{ticker:'SHIBUSDT',name:'SHIB',market:'CRYPTO'}];
   const precision=await setup([tiny],false);await precision.waitForFunction(()=>document.querySelector('.manual-quote>strong')?.textContent==='0.00001867');
+  await precision.getByLabel('手动委托数量',{exact:true}).fill('1000');assert.equal(await precision.locator('.manual-amount b').innerText(),'0.01868867');
   await precision.getByLabel('手动委托数量',{exact:true}).fill('0.00000001');assert.equal(await precision.locator('.manual-amount b').innerText(),'<0.00000001');
   const backtest=await setup([second]);await backtest.goto(base+'/?view=strategy',{timeout:90000});await backtest.getByRole('button',{name:'回测',exact:true}).click();await backtest.getByRole('button',{name:'保存结果',exact:true}).waitFor();
   await backtest.locator('.strategy-tabs').getByRole('button',{name:'账户',exact:true}).click();const quantity=await backtest.locator('.strategy-account>span').filter({hasText:'持仓数量'}).locator('b').innerText();assert(expectedResult.shares>0&&expectedResult.shares<.005);assert.equal(quantity,formatTradingQuantity(expectedResult.shares,'zh-CN'));

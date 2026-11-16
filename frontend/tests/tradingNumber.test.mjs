@@ -15,3 +15,9 @@ test('execution price preserves small crypto prices while normal prices retain t
  assert.equal(formatTradingPrice('SHIBUSDT',.00001867,'en-US'),'0.00001867');
  assert.equal(formatTradingPrice('TINYUSDT',.0000000001,'en-US'),'0.000000000100');
 });
+
+test('USDT amounts and fees retain quote precision above one cent',()=>{
+ assert.equal(formatTradingFee('BTCUSDT',.018688674,'en-US'),'0.01868867');
+ assert.equal(formatTradingFee('BTCUSDT',12.3456789,'en-US'),'12.3456789');
+ assert.equal(formatTradingFee('AAPL',12.3456789,'en-US'),'12.35');
+});

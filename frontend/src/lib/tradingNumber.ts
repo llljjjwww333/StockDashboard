@@ -18,7 +18,7 @@ export function formatTradingPrice(ticker: string, value: number, locale: string
 }
 
 export function formatTradingFee(ticker: string, value: number, locale: string) {
-  const digits = isCryptoTicker(ticker) && value !== 0 && Math.abs(value) < .01 ? 8 : 2;
+  const digits = isCryptoTicker(ticker) ? 8 : 2;
   if (digits === 8 && value > 0 && value < 1e-8) return '<0.00000001';
   return numberFormat(locale, 0, digits).format(value);
 }
