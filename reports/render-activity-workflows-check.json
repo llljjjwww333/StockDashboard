@@ -1,0 +1,18 @@
+{
+  "url": "https://stock-dashboard-web-rf7v.onrender.com",
+  "fixtures": true,
+  "ledgerScrollKeepsControlsBelowHeader": true,
+  "pagerRemainsVisibleWhileScrolling": true,
+  "ordersAndDecisionsPaginated": true,
+  "combinedFiltersWork": true,
+  "csvIncludesAllFilteredPages": true,
+  "accountSwitchResetsFilters": true,
+  "simulationTimingIsExplicit": true,
+  "snapshotDoesNotTouchEditor": true,
+  "copyPreservesBoundRulesAndNewerEditor": true,
+  "ruleAndAiSchedulesSeparated": true,
+  "tinyManualPriceAndAmountVisible": true,
+  "backtestFractionalHoldingVisible": true,
+  "noAiCalls": true,
+  "errors": []
+}

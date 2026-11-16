@@ -18,3 +18,13 @@
 `activity-account-regression.json`复查账户改名、删除撤销、保存失败、导入导出及延迟AI响应隔离。
 
 本轮只修改桌面前端，网络连接改造与移动端优化仍按用户要求搁置。
+
+## 公网发布和复测
+
+- 最终应用提交：`d2cdb25a953ff6bc50032b4345cf694d20bfcfec`。Render前端部署7820567787成功，实际入口资源为`index-BkfNnw1I.js`。
+- 测试站：https://stock-dashboard-web-rf7v.onrender.com 。API健康响应仍为ca50f8f38159，本轮没有修改后端。
+- `render-activity-workflows-check.json`在最终公网前端验证上述记录、快照、复制、频率和精度流程全部通过，包含滚动时分页栏保持可见、模拟成交时点说明正确、查看旧版本不改写草稿及复制保留较新策略。该组使用隔离数据，AI请求为0。
+- `render-activity-account-regression.json`验证账户增删改查、撤销、保存失败和延迟AI响应隔离仍正常。
+- `render-activity-volatility-regression.json`验证原BTC参数表仍正确填入，刷新保留，并用3377根真实币安日线完成3176日区间回测。模型输出由测试响应提供，未调用用户付费模型接口。
+
+324项前端测试、构建和lint通过；所有公网浏览器检查均无页面错误。
