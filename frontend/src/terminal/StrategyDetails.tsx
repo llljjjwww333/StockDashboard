@@ -13,7 +13,7 @@ function RuleDetails({ label, group }: { label: string; group: RuleGroup }) {
   return <section><h4>{label}<small>{group.mode === 'all' ? '全部条件满足' : '任一条件满足'}</small></h4><ol>{group.conditions.map((c, i) => <li key={i}>{operandText(c.left)} {operators[c.operator]} {operandText(c.right)}</li>)}</ol></section>;
 }
 
-export function StrategyDetails({ config }: { config: StrategyConfig }) {
+export function StrategyDetails({ config, executionTiming }: { config: StrategyConfig; executionTiming?: string }) {
   if(config.plan)return <div className="strategy-definition-details" aria-label="策略详细参数">{stagedDescriptions(config.plan).map(([title,text])=><section key={title}><h4>{title}</h4><p>{text}</p></section>)}<details><summary>判定口径</summary><ul>{config.plan.assumptions.map((t,i)=><li key={i}>{t}</li>)}</ul></details></div>;
   const definition = getStrategy(config.kind);
   return <div className="strategy-definition-details" aria-label="策略详细参数">
@@ -23,7 +23,7 @@ export function StrategyDetails({ config }: { config: StrategyConfig }) {
     </>}
     {config.kind === 'adaptive' && <dl>{Object.entries(config.regimeMethods ?? defaultRegimeMethods).map(([regime, method]) => <div key={regime}><dt>{regimeNames[regime as keyof typeof regimeNames]}</dt><dd>{method === 'cash' ? '现金' : getStrategy(method)?.name}</dd></div>)}</dl>}
     {config.allocation&&<section><h4>目标波动率动态仓位</h4><p>w = min({config.positionPct}%, max({config.allocation.minPositionPct}%, {config.allocation.targetVolPct}% / σ{config.allocation.period}))；信号失效为0%。对数收益率标准差×√{config.allocation.annualization}，{config.allocation.ddof?'样本（n−1）':'总体（n）'}口径，每日再平衡，阈值{config.allocation.rebalanceThresholdPct}个百分点。</p></section>}
-    <dl><div><dt>{config.allocation?'最大仓位':'开仓资金比例'}</dt><dd>{config.positionPct ?? 100}%</dd></div><div><dt>收盘止损</dt><dd>{config.stopLossPct ? `${config.stopLossPct}%` : '关闭'}</dd></div><div><dt>收盘止盈</dt><dd>{config.takeProfitPct ? `${config.takeProfitPct}%` : '关闭'}</dd></div><div><dt>成交时点</dt><dd>日线收盘判断，下一交易日开盘成交</dd></div></dl>
+    <dl><div><dt>{config.allocation?'最大仓位':'开仓资金比例'}</dt><dd>{config.positionPct ?? 100}%</dd></div><div><dt>收盘止损</dt><dd>{config.stopLossPct ? `${config.stopLossPct}%` : '关闭'}</dd></div><div><dt>收盘止盈</dt><dd>{config.takeProfitPct ? `${config.takeProfitPct}%` : '关闭'}</dd></div><div><dt>{executionTiming?'模拟成交时点':'成交时点'}</dt><dd>{executionTiming??'日线收盘判断，下一交易日开盘成交'}</dd></div></dl>
     <dl><div><dt>单边手续费</dt><dd>{config.feeBps / 100}% · {config.feeBps}基点</dd></div><div><dt>单边滑点</dt><dd>{config.slippageBps / 100}% · {config.slippageBps}基点</dd></div>
       {(config.dataStartDate || config.dataEndDate)&&<div><dt>历史数据区间</dt><dd>{config.dataStartDate || '可用起点'} — {config.dataEndDate || '最近完成日'}</dd></div>}
       {(config.startDate || config.endDate)&&<div><dt>回测交易区间</dt><dd>{config.startDate || '预热后'} — {config.endDate || '最近完成日'}</dd></div>}</dl>

@@ -368,7 +368,7 @@
 .binding-snapshot details p { white-space:pre-wrap; max-height:200px; overflow:auto; line-height:1.7; }
 .binding-snapshot > .strategy-definition-details { margin-bottom:16px; }
 
-.portfolio-ledger { scroll-margin-top:88px; }
+.portfolio-ledger { scroll-margin-top:88px; overflow:clip; }
 .portfolio-activity-pages { position:sticky; top:72px; z-index:3; background:var(--ink); }
 .strategy-ai-settings summary { cursor:pointer; font-size:12px; color:var(--muted); }
 .strategy-ai-settings > label { margin-top:12px; }
